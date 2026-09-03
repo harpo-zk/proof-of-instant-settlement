@@ -12,7 +12,12 @@
 \usepackage{xcolor}
 \usepackage[margin=1in]{geometry}
 \usepackage{microtype}
-\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue,breaklinks=true]{hyperref}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue,breaklinks=true,
+  pdftitle={Proof-of-Instant-Settlement: Cryptographically Binding PSP-Attested Instant Payments to Confidential On-Chain State},
+  pdfauthor={Juliano Pereira Sales, Marco Tulio Rocha Nascimento},
+  pdfsubject={Zero-knowledge proofs, confidential settlement, instant payments},
+  pdfkeywords={Groth16, zk-SNARK, Pix, instant payments, confidential transactions, PSP attestation}
+]{hyperref}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
 
@@ -27,11 +32,21 @@
 Cryptographically Binding PSP-Attested Instant Payments\\
 to Confidential On-Chain State}
 
-\author{Juliano P. Sales \and Marco T\'ulio Rocha Nascimento\\
-\small Harpo \quad\textbar\quad \texttt{harpo-zk}\\
-\small \href{mailto:tzdesing@gmail.com}{tzdesing@gmail.com} \quad\textbar\quad \href{mailto:marcotulio.nascimento@gmail.com}{marcotulio.nascimento@gmail.com}}
+\author{%
+  \begin{tabular}[t]{c}
+  Juliano Pereira Sales \\
+  \small Harpo \quad\textbar\quad \texttt{harpo-zk} \\
+  \small \href{mailto:tzdesing@gmail.com}{tzdesing@gmail.com}
+  \end{tabular}
+  \and
+  \begin{tabular}[t]{c}
+  Marco T\'ulio Rocha Nascimento \\
+  \small Harpo \quad\textbar\quad \texttt{harpo-zk} \\
+  \small \href{mailto:marcotulio.nascimento@gmail.com}{marcotulio.nascimento@gmail.com}
+  \end{tabular}
+}
 
-\date{Working draft --- \today}
+\date{\today}
 
 \begin{document}
 \maketitle
@@ -148,6 +163,7 @@ useful than leaving a reader to infer it from the threat model in
 Figure~\ref{fig:protocol-flow}, after the contribution list, gives the full
 protocol flow it summarizes:
 \begin{center}
+\begin{minipage}{0.62\textwidth}
 \small
 \begin{verbatim}
               CENTRAL BANK / SPI (the rail)
@@ -168,6 +184,7 @@ protocol flow it summarizes:
           |  pc <- counterparty commitment     |
           +----------------------------------+
 \end{verbatim}
+\end{minipage}
 \end{center}
 \noindent Three different things get called ``proof'' in this design, and
 conflating them is the single easiest way to overstate what it delivers.
@@ -610,10 +627,11 @@ salts are therefore secrets of the same sensitivity as the payment data they
 blind, and the off-chain channel of \S\ref{sec:construction} step~2 must protect
 them accordingly. And since \code{attest} is write-once per tag, a receipt the PSP
 signs over a \emph{wrong} recomputed $c_0$ --- a software bug, not an attack ---
-permanently burns that $\nu$: the payment can no longer close its operation, which
-then falls into the liveness gap of \S\ref{sec:security} (escrow timeout,
-off-chain dispute). We state this as a property of the anti-replay choice rather
-than discover it in production.
+permanently burns that $\nu$: the payment can no longer close \emph{that}
+operation, and the $c_0$ it was locked on falls back on the liveness timeout
+of \S\ref{sec:oracle} (\code{cancel}, once the \code{lock} deadline passes)
+rather than staying stuck. We state this as a property of the anti-replay
+choice rather than discover it in production.
 
 \subsection{What \texttt{settled} means, and reversal}
 \label{sec:reversal}
@@ -1523,36 +1541,41 @@ the artifact manifest.
 \toprule
 \textbf{Call} & \textbf{Gas} \\
 \midrule
-\code{lock(c0)} --- escrow locks on the agreed terms & $73{,}936$ \\
+\code{lock(c0, deadline)} --- escrow locks on the agreed terms, with a liveness deadline (\S\ref{sec:oracle}) & $74{,}982$ \\
 \code{attest(receipt, signature)} --- ECDSA recover, checks, tag storage (v2: $88{,}646$) & $90{,}913$ \\
-\textbf{\code{finalize(proof)} --- complete settlement (v2: $352{,}983$)} & $\mathbf{353{,}322}$ \\
+\textbf{\code{finalize(proof)} --- complete settlement (v2: $352{,}983$)} & $\mathbf{353{,}315}$ \\
 \quad of which \code{verifyProof} (Groth16, 5 public signals) & $243{,}194$ \\
-\code{attestReversal(reversal, signature)} & $57{,}553$ \\
+\code{cancel(c0)} --- after the deadline, Locked $\to$ Expired & $30{,}259$ \\
+\code{attestReversal(reversal, signature)} & $63{,}529$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent Figures are v3 (with $\mathsf{pc}$ in the receipt and the
-\code{finalize} cross-check); v2 figures are given alongside for the two calls
-whose struct changed. \code{attest} costs $2{,}267$ gas more than v2 (one extra
-bytes32 field in calldata and in the EIP-712 digest); \code{finalize} costs
-$339$ gas more (one \code{keccak256} over 64 bytes plus the extra calldata word
-for the cross-check) --- both consistent with the single-word binding storage of
-\S\ref{sec:oracle} rather than a fresh storage slot. The complete settlement
-transaction costs $353{,}322$ gas. An \emph{isolated} call to the verifier
-contract with the same proof and public signals costs $243{,}194$ gas ---
-including its own $21{,}000$ base transaction cost and its own proof calldata,
-neither of which recurs when the verifier is instead called \emph{internally}
-from \code{finalize}, so $243{,}194$ is an upper bound on the verifier's share of
-the $353{,}322$, not a component that subtracts cleanly to give the remainder.
-With that caveat, the bulk of the complete transaction's cost is still the
-Groth16 verification; the rest is the oracle cross-check (the receipt must be
-attested \emph{and} carry the same $(c_0,\mathsf{pc})$ the escrow and the proof
-agree on), the domain-anchor check, the tag consumption and the state
-transition. Quoting the isolated verifier figure alone, unqualified, would both
-overstate its call-time cost and understate the complete transaction's real
-cost --- which is why we report the complete-call figure as primary and give the
-isolated figure only with this caveat attached.
+\noindent Figures are the current reference deployment (with $\mathsf{pc}$ in
+the receipt, the \code{finalize} cross-check, and the \code{lock}/\code{cancel}
+liveness timeout); v2 figures are given alongside for the two calls whose
+struct changed relative to it. \code{attest} costs $2{,}267$ gas more than v2
+(one extra bytes32 field in calldata and in the EIP-712 digest);
+\code{finalize} costs $332$ gas more (one \code{keccak256} over 64 bytes plus
+the extra calldata word for the cross-check) --- both consistent with the
+single-word binding storage of \S\ref{sec:oracle} rather than a fresh storage
+slot. The complete settlement transaction costs $353{,}315$ gas. An
+\emph{isolated} call to the verifier contract with the same proof and public
+signals costs $243{,}194$ gas --- including its own $21{,}000$ base
+transaction cost and its own proof calldata, neither of which recurs when the
+verifier is instead called \emph{internally} from \code{finalize}, so
+$243{,}194$ is an upper bound on the verifier's share of the $353{,}315$, not a
+component that subtracts cleanly to give the remainder. With that caveat, the
+bulk of the complete transaction's cost is still the Groth16 verification; the
+rest is the oracle cross-check (the receipt must be attested \emph{and} carry
+the same $(c_0,\mathsf{pc})$ the escrow and the proof agree on), the
+domain-anchor check, the tag consumption and the state transition. Quoting the
+isolated verifier figure alone, unqualified, would both overstate its
+call-time cost and understate the complete transaction's real cost --- which
+is why we report the complete-call figure as primary and give the isolated
+figure only with this caveat attached. \code{cancel} is cheap by comparison
+--- a single state write and no cryptographic check --- which is expected: the
+liveness path exists precisely so a stuck operation costs little to release.
 
 \subsection{ZK-Circuit Constraint Analysis}
 \label{sec:formalver}
