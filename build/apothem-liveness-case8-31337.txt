@@ -1,0 +1,7 @@
+SettlementV2 (caso 8 isolado): 0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0
+
+caso 8 — lock(c0, deadline=+60s)                          tx=0x020825fa373817c64034618a9b0426fb6c0ff5f0df23aeb979e9bf0fec678338
+caso 8a — cancel() antes do prazo expirar                    REVERTEU (client-side, sem hash) — An unknown RPC error occurred.
+caso 8b — cancel() apos o prazo expirar                   tx=0xf39cc96aa5445f81b366b1574b9accc48b09ddf5d5c7c954f478f20521be0092
+caso 8b — isExpired apos cancel (deve ser true)            true
+caso 8c — finalize() apos cancel() (Expired, nao mais Locked) REVERTEU (client-side, sem hash) — An unknown RPC error occurred.

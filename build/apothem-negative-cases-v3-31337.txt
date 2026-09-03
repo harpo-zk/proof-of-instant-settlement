@@ -1,0 +1,18 @@
+SettlementVerifierV2 (compartilhado entre os casos): 0x5fbdb2315678afecb367f032d93f642f64180aa3
+
+caso 5a — c0 do recibo diverge do que a prova abre (valor liquidado != acordado) REVERTEU (client-side, sem hash) — The contract function "finalize" reverted with the following reason:
+settlement: recibo divergente do escrow (c0 ou cont
+caso 5b — partyCommitment do recibo diverge do que a prova abre REVERTEU (client-side, sem hash) — The contract function "finalize" reverted with the following reason:
+settlement: recibo divergente do escrow (c0 ou cont
+caso 6 — ancora de dominio K da prova diverge da registrada  REVERTEU (client-side, sem hash) — The contract function "finalize" reverted with the following reason:
+settlement: ancora de dominio divergente
+caso 7 — finalize (caminho feliz, janela curta)         tx=0xc114253d82eeb2e8e7f71351057ce885cad752f89d740033dcccd76424dc6b88
+caso 7a — attestReversal dentro da janela                tx=0xdf35a206651d91964e8aa0b5778b371103f367ac0b9bb0f7e9773b9363582d21
+caso 7a — isReleasable apos reversal (deve ser false)     false
+caso 7a — tag revertida permanece NAO irrevogavel          true
+caso 8a — cancel() antes do prazo expirar                    REVERTEU (client-side, sem hash) — The contract function "cancel" reverted with the following reason:
+settlement: prazo ainda nao expirou
+caso 8b — cancel() apos o prazo expirar                  tx=0xaad57fc7f3266fd96b41d87c832d10144eec155eeef613abfb71410795050485
+caso 8b — isExpired apos cancel (deve ser true)           true
+caso 8c — finalize() apos cancel() (Expired, nao mais Locked) REVERTEU (client-side, sem hash) — The contract function "finalize" reverted with the following reason:
+settlement: operacao nao travada

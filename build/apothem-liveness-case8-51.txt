@@ -1,0 +1,8 @@
+SettlementV2 (caso 8 isolado): 0xbf393ca377f0ef3f3abbaec1c48f7ca4f3d7ff48
+
+caso 8 — lock(c0, deadline=+60s)                          tx=0x4849ebd853c38939a1e56aec1878ca87d58f78df230be98e033d6ec3095b669e
+caso 8a — cancel() antes do prazo expirar                    tx=0x5164d0dbd8318c3b90eea69af09f757bf7275f52f4cbb0b48720ce79d1406835 status=REVERTED gas=26202
+caso 8b — aguardando 70s (prazo real de lock() na Apothem)...
+caso 8b — cancel() apos o prazo expirar                   tx=0xbad26608dc11bafcea86f61f7428aab25c685d897a628b9834f9c803ecb4b995
+caso 8b — isExpired apos cancel (deve ser true)            true
+caso 8c — finalize() apos cancel() (Expired, nao mais Locked) tx=0xffad291af5987735d74c3e5ccab2dcbd66b555056eb05c45c7bb3aac7b776177 status=REVERTED gas=52401

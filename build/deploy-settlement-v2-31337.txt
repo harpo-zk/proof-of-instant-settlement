@@ -1,0 +1,22 @@
+chainId        : 31337
+deployer       : 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
+c0             : 0x0806d77914ff06f13d894509230087498b7124d361ddf0d7b73bfa23a4111f1c
+c (settlement) : 0x14c060d623b9c922e4d89f7dccd9896d1aba49858c60ce353d0545d57912277e
+tag (nu)       : 0x0e139e27d64cac607ce1837c83512e990b5f3b6b353e56a11e3c6150d610f127
+K (anchor)     : 0x249b95f4a530e514abdd4e1c6c3b7d4c878d3ec8943ef72193544831947d9a15
+partyCommitment: 0x17c84d688c8a39c14bf1ba585355e115c70689550727378dfed8186e1dc7262a
+
+SettlementVerifierV2       : 0x5fbdb2315678afecb367f032d93f642f64180aa3
+SettlementAttestationOracle: 0xe7f1725e7734ce288f8367e1bb143e90bb3f0512
+SettlementV2               : 0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0
+
+setAttestor      tx=0x1a8f6f3d6e5c51699d6983cb687d8c2f6846fc42f84607452bb53d175fd54e7c gas=47919
+lock(c0, deadline) tx=0x0442d3e989c3981f4fb5ae4b36b9d20c7efeea854d37b938ddb3e428bd53ddf0 gas=72954
+attest           tx=0xac96515e00701722888af79ff2d1ac14a8b6d6c1a21f14a92f910e61b0f5558b gas=82009
+finalize (ZK)    tx=0xfbe4b82c07a52cb608b2bf0371d2d17ec49a881138bb460db0e7ea4a9fb76f92 gas=331527
+
+estado da operacao : Finalized
+tag consumida      : true
+liberavel agora    : false  (falso ate a janela de 72h fechar)
+atestada           : true
+irrevogavel        : false
