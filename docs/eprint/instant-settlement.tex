@@ -13,6 +13,8 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{microtype}
 \usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue,breaklinks=true]{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
 
 \newtheorem{property}{Property}
 \newtheorem{assumption}{Assumption}
@@ -36,9 +38,10 @@ to Confidential On-Chain State}
 
 \begin{abstract}
 On-chain confidentiality layers (Zeto, Railgun, Rayls/Enygma) prove
-\emph{confidential transfers} between on-chain accounts, but within the
-confidential-transfer family on public EVM chains none of them binds its private
-state to a \emph{real fiat settlement}. For tokenized-asset settlement integrated
+\emph{confidential transfers} between on-chain accounts, but, to the best of
+our knowledge, none of the public-EVM confidential-transfer systems
+considered here binds its private state to a \emph{real fiat settlement}. For
+tokenized-asset settlement integrated
 with instant-payment rails --- concretely Brazil's central-bank instant-payment
 system --- the question that matters is not ``did an on-chain balance move'' but
 ``\emph{did the fiat money actually settle, for this exact operation}'', and to
@@ -141,7 +144,9 @@ payment identifiers confidential.
 The construction does not cryptographically reach the central bank; it reaches
 a regulated PSP that observed the rail. Stating that plainly, up front, is more
 useful than leaving a reader to infer it from the threat model in
-\S\ref{sec:security}:
+\S\ref{sec:security}. The sketch below is the trust chain in miniature;
+Figure~\ref{fig:protocol-flow}, after the contribution list, gives the full
+protocol flow it summarizes:
 \begin{center}
 \small
 \begin{verbatim}
@@ -222,6 +227,72 @@ of the verifier in isolation (\S\ref{sec:impl}).
 protected, including liveness, key compromise, and the residual trust in the PSP
 (\S\ref{sec:security}).
 \end{enumerate}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners, align=center, minimum height=1.15cm, minimum width=2.5cm, inner sep=2pt, font=\scriptsize},
+  stepdot/.style={circle, draw, fill=white, inner sep=0pt, minimum size=4mm, font=\tiny},
+  arr/.style={-{Stealth[length=1.6mm]}, thick},
+]
+
+  \node[box] (payer)  at (0,4.3)    {Payer\\(originator)};
+  \node[box] (pspa)   at (3.35,4.3)  {PSP A\\(paying PSP)};
+  \node[box] (spi)    at (6.7,4.3)  {BCB / SPI\\(instant payments)};
+  \node[box] (pspb)   at (10.05,4.3) {PSP B\\(receiving PSP)};
+  \node[box] (payee)  at (13.4,4.3) {Payee\\(beneficiary)};
+
+  \draw[arr] (payer) -- (pspa)  node[stepdot, midway]{1};
+  \draw[arr] (pspa)  -- (spi)   node[stepdot, midway]{2};
+  \draw[arr] (spi)   -- (pspb)  node[stepdot, midway]{3};
+  \draw[arr] (pspb)  -- (payee) node[stepdot, midway]{4};
+
+  \node[box, minimum width=2.7cm] (attesta) at (3.35,2.2) {PSP A signs\\attestation\\(EIP-712 over $c_0,\nu,\mathsf{pc}$)};
+  \node[box, minimum width=2.7cm] (attestb) at (10.05,2.2) {PSP B signs\\attestation\\(EIP-712 over $c_0,\nu,\mathsf{pc}$)};
+  \draw[arr] (pspa) -- node[stepdot, midway]{5} (attesta);
+  \draw[arr] (pspb) -- node[stepdot, midway]{6} (attestb);
+  \draw[arr, dashed] (attesta) -- node[fill=white, midway, font=\tiny\itshape]{same \eeid{}} (attestb);
+
+  \begin{scope}[on background layer]
+    \node[draw, dashed, fit=(payer)(pspa)(spi)(pspb)(payee)(attesta)(attestb), inner sep=7pt, label={[font=\bfseries\scriptsize]above:A. External payment rail (off-chain)}] (offchain) {};
+  \end{scope}
+
+  \draw[very thick, purple] (-1.3,0.85) -- (14.0,0.85);
+  \node[fill=white, draw=purple, inner sep=3pt, font=\bfseries\scriptsize, text=purple] at (6.35,0.85) {TRUST BOUNDARY};
+
+  \node[stepdot, fill=purple!10] (s7) at (0,0.2) {7};
+  \draw[arr, dashed] (s7) -- (0,-0.35);
+  \node[box] (relayer) at (0,-1.0)   {Relayer submits\\attestations $+\ \pi$};
+  \node[box] (verify)  at (3.35,-1.0) {Contract verifies\\EIP-712, domain,\\expiry};
+  \node[box] (groth)   at (6.7,-1.0) {Groth16 verifies\\witness $w$ s.t.\\$c_0,c,\nu,K,\mathsf{pc}$};
+  \node[box] (effects) at (10.05,-1.0) {On-chain effects:\\consume $\nu$, store\\commitments, emit};
+  \node[box] (conf)    at (13.4,-1.0){Confidential state\\available on-chain};
+
+  \draw[arr] (relayer) -- node[stepdot, midway]{8} (verify);
+  \draw[arr] (verify)  -- node[stepdot, midway]{9} (groth);
+  \draw[arr] (groth)   -- node[stepdot, midway]{10} (effects);
+  \draw[arr] (effects) -- node[stepdot, midway]{11} (conf);
+
+  \begin{scope}[on background layer]
+    \node[draw, fit=(relayer)(verify)(groth)(effects)(conf), inner sep=7pt, label={[font=\bfseries\scriptsize]below:B. PoIS on-chain (public EVM)}] (onchain) {};
+  \end{scope}
+\end{tikzpicture}
+\caption{PoIS protocol flow. \textbf{A (off-chain)}: (1) the payer initiates a
+Pix payment; (2)--(4) the rail carries it through both PSPs to the payee; (5,
+6) each PSP that needs to sign attests what it observed, over the
+commitments --- never the plaintext value or identifiers. \textbf{Trust
+boundary}: everything above is off-chain and PSP-attested; everything below
+is on-chain and cryptographically checked --- nothing below is derivable from
+anything above it except through the attestation (Property~\ref{prop:conf}).
+\textbf{B (on-chain)}: (7, 8) a relayer submits the attestation(s) and the
+Groth16 proof $\pi$; (9) the contract checks the EIP-712 signature, domain
+anchor and expiry; (10) the proof is verified; (11) the tag is consumed and
+confidential commitments are recorded. This is a schematic of the flow
+described in \S\ref{sec:construction}--\S\ref{sec:oracle}; the reference
+implementation's negative cases (\S\ref{sec:impl}) exercise each check in box
+B individually.}
+\label{fig:protocol-flow}
+\end{figure}
 
 \section{Preliminaries}
 
@@ -743,8 +814,12 @@ work in progress rather than a deployed result.
 \section{Formal Model and Security Properties}
 \label{sec:formal}
 
-We give a syntax for the construction and state its properties as reductions to
-standard assumptions. Let $\Pi=(\mathsf{Setup},\mathsf{Commit},\mathsf{Prove},
+We give a syntax for the construction and state its security properties under
+explicit cryptographic, operational, institutional and governance assumptions
+--- the table below (A1)--(A4) names which assumption is which kind; not
+every property that follows reduces to a standard cryptographic assumption
+alone, and we say so at each one rather than let ``formal properties'' imply
+otherwise. Let $\Pi=(\mathsf{Setup},\mathsf{Commit},\mathsf{Prove},
 \mathsf{Verify},\mathsf{Attest},\mathsf{Settle})$ over the BN254 scalar field $\Fp$:
 \begin{itemize}
 \item $\mathsf{SetupZK}(1^\lambda)\to(\mathsf{crs},\mathsf{vk})$: the per-circuit
@@ -862,32 +937,40 @@ it routes through Assumption~\ref{as:psp} for what the attestation
 unconditional under (A3) --- exactly the authentication/truthfulness split
 Property~\ref{prop:auth} states.
 
-\begin{property}[On-chain confidentiality under the Poseidon random-oracle model]
+\begin{property}[Confidentiality of settlement data under the Poseidon random-oracle model]
 \label{prop:conf}
-The public transcript --- $(c_0,c,\nu,K,\mathsf{pc},\pi)$ \emph{together with the
-calldata of} \code{attest} \emph{and} \code{settle}, i.e. including
-$\mathsf{Receipt}(c_0,\nu,\mathsf{settled},\mathsf{deadline})$ --- is simulatable
-without $(\text{amount},\eeid,\text{party},\text{txid})$, revealing them only with
-negligible advantage. The property is scoped to \emph{on-chain observers without
+For any PPT adversary observing the public transcript --- $(c_0,c,\nu,K,\mathsf{pc},\pi)$
+\emph{together with the calldata of} \code{attest} \emph{and} \code{settle},
+i.e. including $\mathsf{Receipt}(c_0,\nu,\mathsf{settled},\mathsf{deadline})$
+and its valid EIP-712 signature under a registered attestor key --- the
+adversary's advantage in recovering $(\text{amount},\eeid,\text{party},\text{txid})$
+is negligible. The property is scoped to \emph{on-chain observers without
 access to the off-chain secrets} ($\text{salt}_0$, salt, $\text{salt}_p$, $k$):
 the attesting PSP is explicitly outside this scope, since it holds those
 secrets itself (\S\ref{sec:oracle} states this as a linkability boundary, not
-an oversight). The hiding argument below is a random-oracle heuristic for
-Poseidon (A2), not a reduction to a standalone computational hardness
+an oversight). This is a \emph{hiding} claim about the four excluded values,
+not a claim that the whole transcript --- signature included --- can be
+produced by a simulator lacking the attestor's signing key: no such simulator
+is claimed or needed, since the adversary here is given a genuine transcript,
+not asked to distinguish one from a simulation of it. Signature
+\emph{authenticity} is a separate matter, stated and proved as
+Property~\ref{prop:auth} under (A3); this property does not depend on it and
+does not restate it. The hiding argument below is a random-oracle heuristic
+for Poseidon (A2), not a reduction to a standalone computational hardness
 assumption; we state it as a heuristic explicitly, which is the standard
 treatment for a permutation-based hash used as a commitment, and do not claim a
 tighter reduction than that.
 \end{property}
 \begin{proof}[Proof sketch, in four parts]
-The transcript is stated to include the receipt and the calldata deliberately:
-a transcript restricted to $(c,\nu,\pi)$ alone would be insufficient --- any
-receipt design whose signed fields carry the amount or \code{txid} in the
-clear, as \S\ref{sec:oracle} discusses, falsifies the property outright, since
-that calldata is exactly as public and permanent as the settlement transcript
-itself. We do not construct a single joint simulator for the whole transcript;
-instead we argue each public element's hiding independently, which suffices
-because the elements below are exactly the transcript's public elements and
-none is a function of the others computable without the hidden witness.
+The transcript is stated to include the receipt, its signature, and the
+calldata deliberately: a transcript restricted to $(c,\nu,\pi)$ alone would be
+insufficient --- any receipt design whose signed fields carry the amount or
+\code{txid} in the clear, as \S\ref{sec:oracle} discusses, falsifies the
+property outright, since that calldata is exactly as public and permanent as
+the settlement transcript itself. We argue each public element's contribution
+to the adversary's advantage independently, which suffices because the
+elements below are exactly the transcript's public elements and none is a
+function of the others computable without the hidden witness.
 \emph{(A) ZK privacy of $\pi$.} Groth16 zero-knowledge (A1) gives a simulator
 for $\pi$ alone, given only the public signals $(c_0,c,\nu,K,\mathsf{pc})$;
 this is the standard Groth16 guarantee and needs no extension here.
@@ -906,17 +989,22 @@ about transaction existence, timing, on-chain addresses (submitter, relayer,
 attestor) or cross-operation linkability from a repeated $\mathsf{pc}$ or $K$
 --- \S\ref{sec:security}'s ``confidentiality is not unlinkability'' table
 states exactly which of these are and are not protected, and none of the
-protected ones is this property's subject. \emph{(D) The receipt's EIP-712
-signature is authentication, not an added privacy mechanism.} The signature
-over $\mathsf{Receipt}(c_0,\nu,\mathsf{settled},\mathsf{deadline})$ proves
-which registered key signed (A3, Property~\ref{prop:auth}); it neither hides
-nor further reveals $c_0$ or $\nu$ beyond what (B) already established for
-them as public signals --- the receipt and the settlement transcript were
-already joined through $\nu$, so the signature adds an authentication fact,
-not a new information leak. Composing (A)--(D): every public element of the
-stated transcript is independently simulatable or already-public without the
-excluded values, and (C) delimits exactly what this composition does not
-claim.
+protected ones is this property's subject. \emph{(D) The signature adds
+authentication, and nothing an adversary can extract.} We do \emph{not} claim
+the signature bits themselves are simulatable --- a PPT adversary lacking the
+attestor's key cannot produce one, which is precisely EUF-CMA (A3), not a
+hiding property, and is exactly why it is Property~\ref{prop:auth}'s claim,
+not this one's. What this property needs, and gets, is narrower: the message
+$\mathsf{Receipt}(c_0,\nu,\mathsf{settled},\mathsf{deadline})$ the adversary
+sees signed contains no plaintext of $(\text{amount},\eeid,\text{party},\text{txid})$
+--- every field in it is either already covered by (B) or a public boolean/timestamp
+--- so \emph{observing a valid signature over that message} gives the
+adversary nothing toward recovering the four excluded values beyond what (B)
+already accounts for. Composing (A)--(D): every source of information in the
+stated transcript either carries negligible advantage toward the four excluded
+values (A, B) or is explicitly out of this property's scope (C), and the
+signature's own unforgeability (D) is a fact about who signed, orthogonal to
+what the signed message reveals.
 \end{proof}
 
 \begin{property}[Domain-scoped settlement uniqueness]
@@ -1634,13 +1722,20 @@ institutional (PSP-attested) rail binding, and compliance answered as predicates
 \paragraph{Confidential transfer on EVM.}
 Rayls/Enygma~\cite{rayls} (Parfin) is the closest peer in the
 confidential-transfer family: same regulator context, same
-Groth16/Poseidon/BabyJubJub primitives, central-bank pilots. It is a two-tier
-private-ledger design with a regulator commit-chain, and its auditor holds a
-\emph{global} view key. Zeto~\cite{zeto} and Nightfall provide generic
-confidential transfers on EVM. To the best of our knowledge, none of these binds
-a real instant-payment rail in the sense evaluated here: they answer ``was the
-on-chain transfer well-formed'', not ``did the fiat settle''. Our contribution
-is orthogonal to, and composable with, those systems.
+Groth16/Poseidon/BabyJubJub primitives, central-bank pilots, and it provides
+confidential, EVM-compatible institutional settlement and delivery-versus-payment
+primitives in its own right, with a \emph{global} auditor view key --- we do
+not attempt a detailed architectural comparison beyond that one point, since
+it is what our own auditor model (predicate/scoped, \S\ref{sec:predicates},
+\S\ref{sec:pq}) is contrasted against in the table below, and nothing more is
+needed for our claim. Zeto~\cite{zeto} and
+Nightfall provide generic confidential transfers on EVM. To the best of our
+knowledge, none of these binds a real instant-payment rail in the sense
+evaluated here: they answer ``was the on-chain transfer well-formed'', not
+``did the fiat settle''. Our contribution is orthogonal: binding an external
+instant-payment rail event to confidential EVM state, composable with what
+these systems already do downstream of that point (\S\ref{sec:relatedwork}'s
+closing thesis makes this precise).
 For post-quantum auditability, Qurrency~\cite{qurrency} adds ML-KEM-based auditor
 access to Zeto on a Groth16/circom stack; we reuse its open-source ML-KEM circom
 implementation (\S\ref{sec:pq}) and bind it to our rail-anchored commitment. Our
