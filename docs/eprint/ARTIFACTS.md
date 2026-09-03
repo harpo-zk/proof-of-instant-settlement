@@ -233,5 +233,11 @@ view predicates — all locally, with the real on-chain evidence for the
   hardware declarado (i5-1135G7, containerizado) — a tentativa nesta sessão,
   numa máquina não controlada, teve ruído grande demais para publicar.
 - **18 sinais do KYC**: cruzar com o `.sym` pra identificar o que são.
-- **URL + commit do repositório público**: preencher antes de circular —
-  `harpo-zk/proof-of-instant-settlement`, ainda não criado.
+
+## Repositório de referência público
+
+Snapshot curado (não o histórico completo do monorepo interno — ver a nota
+de proveniência no README daquele repositório):
+
+`https://github.com/harpo-zk/proof-of-instant-settlement`, commit
+`d38feb77919c89c3697d7bc59c9d88aba0746a68`.
