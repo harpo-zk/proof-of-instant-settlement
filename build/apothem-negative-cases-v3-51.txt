@@ -1,16 +1,15 @@
-SettlementVerifierV2 (compartilhado entre os casos): 0xd3c9eeeae7036acec223cf594d723557535259f0
+SettlementVerifierV2 (compartilhado entre os casos): 0x1f4cf5585deec847eb00ddfef1ccd766dde43eb6
 
-caso 5a — c0 do recibo diverge do que a prova abre (valor liquidado != acordado) tx=0x88c86b46c1c23e3a968c0e8ec53fa6c3a32ccd36d7f2b93ff116a333c60f2d7c status=REVERTED gas=65249
-caso 5b — partyCommitment do recibo diverge do que a prova abre tx=0x2e29057b83aa33d3f25678ad4dbceb06afe876119ad929c5cb444e929e0ec9bb status=REVERTED gas=65249
-caso 6 — ancora de dominio K da prova diverge da registrada  tx=0x5305bca4ca67ad2cf867d9b9b51634fda76bf6e9e10918f2b3eecf064ad1e591 status=REVERTED gas=54455
-caso 7 — finalize (caminho feliz, janela curta)         tx=0xca5aa76f42df55bdc61f92ecb4a864c300d78b805ec1ca08cca8d446daf47240
-caso 7a — attestReversal dentro da janela                tx=0x484171c1db1da22fb6230763dd5355eecd8ebe312e5b9edeefa9db681c995c30
+caso 5a — c0 do recibo diverge do que a prova abre (valor liquidado != acordado) tx=0x8340874357a1178d1fe5eba683bd2ea3c563546b4c8e66a46fa0809789d48df8 status=REVERTED gas=65057
+caso 5b — partyCommitment do recibo diverge do que a prova abre tx=0x85adc5e14a4380ce042bd48516bbf316b92016a072d63d34baca7b24e1b82173 status=REVERTED gas=65057
+caso 6 — ancora de dominio K da prova diverge da registrada  tx=0xc856f56842702f8c9445bfb479de3ca75de3189d86d32396021dac38c1e2e34c status=REVERTED gas=54455
+caso 7 — finalize (caminho feliz, janela curta)         tx=0x91de456a05b24d8343915f0d3e259e7b309ff22d31e2fb539e955ee45cf0932c
+caso 7a — attestReversal dentro da janela                tx=0xc09942eccd60cddf24839c96464224af23129571b3cedd5ce9eab0871f5d5643
 caso 7a — isReleasable apos reversal (deve ser false)     false
 caso 7b — aguardando 660s (janela real na Apothem)...
 caso 7a — tag revertida permanece NAO irrevogavel          true
-caso 8a — cancel() antes do prazo expirar                    REVERTEU (client-side, sem hash) — The contract function "cancel" reverted with the following reason:
-settlement: operacao nao travada
+caso 8a — cancel() antes do prazo expirar                    tx=0xad2d86af36bf5a2e1c011ab423a2c093b915c9a4f09c75d1a7499af9ef7a87bb status=REVERTED gas=26202
 caso 8b — aguardando 70s (prazo real de lock() na Apothem)...
-caso 8b — cancel() apos o prazo expirar                  tx=0xfdd9906c062cdd06841cafae2839c22b15b7d19873a2afe1924ee6f2f240a6b5
+caso 8b — cancel() apos o prazo expirar                  tx=0x739103995f1f0895b75573680387e83d4b66b5effa26ca09c1c71f58ed60a6ba
 caso 8b — isExpired apos cancel (deve ser true)           true
-caso 8c — finalize() apos cancel() (Expired, nao mais Locked) tx=0xe2176528a22a2d056b96a8468e764a7f5362a9d39dea7c7bf5b619363139e208 status=REVERTED gas=52401
+caso 8c — finalize() apos cancel() (Expired, nao mais Locked) tx=0x6fa1de8ba7cee1bf8c70f5646673f066afebb5bb6e360044350fe8c3fd062ed9 status=REVERTED gas=52209

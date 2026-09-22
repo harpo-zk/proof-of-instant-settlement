@@ -1,0 +1,8 @@
+SettlementAttestationOracle: 0x9b44cfd2150e65292e462a964b7b4fda0dd8f41a (chainId 51) · deployer/attestor 0xbe3cc4c4ef02f6851440823e5decb62f8df0ee60
+
+1 · recibo forjado (nao-attestor)        tx=0xd9205162a70c8b9577aa41bb94a8df89e494ec8cac62f53c34deab87b26936f2 status=REVERTED (esperado) gas=37922
+2 · settled = false                      tx=0xbfbbcec38895cd96cca845f09efff3f3a1760b6534ddeb010a2b5f33fed46cd4 status=REVERTED (esperado) gas=28435
+3 · recibo expirado (deadline passado)   tx=0x16543606cb2ef5558d25fadc7a122f273289f336d8ca7701f2353a5eedcc9642 status=REVERTED (esperado) gas=28679
+4 · replay da tag ja atestada            tx=0x6f00ce0b3eac5ac73038955e609fae1352fbb21e42ffc5e670e1e6812e2e7db6 status=REVERTED (esperado) gas=36468
+
+4/4 rejeitados on-chain

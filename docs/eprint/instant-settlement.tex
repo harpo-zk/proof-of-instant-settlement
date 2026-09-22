@@ -22,7 +22,9 @@
 \usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
 
 \newtheorem{property}{Property}
-\newtheorem{assumption}{Assumption}
+\newtheorem*{assumption}{Assumption}
+\newtheorem{theorem}{Theorem}
+\newtheorem{corollary}{Corollary}
 \newcommand{\Poseidon}{\ensuremath{\mathsf{Poseidon}}}
 \newcommand{\Fp}{\ensuremath{\mathbb{F}_p}}
 \newcommand{\eeid}{\ensuremath{\mathsf{e2eId}}}
@@ -52,22 +54,22 @@ to Confidential On-Chain State}
 \maketitle
 
 \begin{abstract}
-On-chain confidentiality layers (Zeto, Railgun, Rayls/Enygma) prove
-\emph{confidential transfers} between on-chain accounts, but, to the best of
-our knowledge, none of the public-EVM confidential-transfer systems
-considered here binds its private state to a \emph{real fiat settlement}. For
-tokenized-asset settlement integrated
-with instant-payment rails --- concretely Brazil's central-bank instant-payment
-system --- the question that matters is not ``did an on-chain balance move'' but
-``\emph{did the fiat money actually settle, for this exact operation}'', and to
-answer it \emph{without revealing} amount or counterparties. We present
-Proof-of-Instant-Settlement, a construction that cryptographically binds a
-specific instant payment, identified by its rail-level \emph{EndToEndId}
-(E2EID) and \emph{attested by a regulated PSP}, to an on-chain commitment via a
-Groth16 circuit, together with an attestation oracle that lets the chain
-verify --- through an EIP-712 signature from a registered payment service
-provider (PSP) --- that the E2EID corresponds to a payment the PSP reports as
-settled and credited. We are precise about what is proved and by whom: the
+We present Proof-of-Instant-Settlement, a construction that binds a specific
+real-world instant payment --- attested by the regulated payment service
+provider (PSP) that observed it --- to a confidential on-chain commitment, so
+that a public-EVM contract can verify \emph{that the fiat money settled, for
+this exact operation}, without the amount or the counterparties ever appearing
+on-chain. The contribution is the binding itself, not new primitives: on-chain
+confidentiality layers (Zeto, Railgun, Rayls/Enygma) prove \emph{confidential
+transfers} between on-chain accounts, but, to the best of our knowledge, none
+of the public-EVM confidential-transfer systems considered here binds its
+private state to a real fiat settlement. Our concrete instantiation targets
+Brazil's central-bank instant-payment rail (Pix), whose payments carry a unique
+rail-level identifier, the \emph{EndToEndId} (E2EID). The construction pairs a
+Groth16 circuit, which proves that a commitment opens to the E2EID and terms of
+a specific payment, with an attestation oracle that lets the chain verify ---
+through an EIP-712 signature from a registered PSP --- that this E2EID
+corresponds to a payment the PSP reports as settled and credited. We are precise about what is proved and by whom: the
 construction proves a PSP-attested claim about the rail, not the rail's own
 cryptographic truth; \S\ref{sec:security} states this trust boundary as the
 central fact about the system, not a footnote. The construction is
@@ -110,14 +112,14 @@ operation does not close (Properties~\ref{prop:settlementbinding}
 and~\ref{prop:auth}).
 \emph{Institutionally}: a registered PSP attested that it observed this
 payment settle and credit, over this $c_0$ and this counterparty commitment
-(Assumption~\ref{as:psp}). \emph{Not proved}: that the central bank's own
+(Assumption~(I1)). \emph{Not proved}: that the central bank's own
 infrastructure settled the payment (\S\ref{sec:security} discusses four
 candidate paths, none evaluated here); that the attesting PSP is honest, only
 that a registered key signed (Property~\ref{prop:auth}); economic
 irreversibility of the settlement (\S\ref{sec:reversal}); unlinkability across
 operations (\S\ref{sec:security}, ``confidentiality is not unlinkability'');
 or soundness under a production-grade trusted setup (\S\ref{sec:security}
-states the reference artifacts' setup as development-grade).
+states the reference artifacts' setup as a single-contributor, non-MPC ceremony).
 \end{minipage}}
 \end{center}
 
@@ -131,6 +133,25 @@ central-bank-adjacent Rayls/Enygma all rely on the same primitive family
 account models with nullifiers)~\cite{rayls,zeto}. What none of them addresses is
 the \emph{link to a real payment rail}: the on-chain proof says nothing about
 whether fiat currency actually moved.
+
+\paragraph{Terminology for readers outside Brazil.}
+The concrete rail throughout this paper is \emph{Pix}, the instant-payment
+system operated by the Central Bank of Brazil (Banco Central do Brasil, Bacen)
+since 2020, which settles transfers between accounts at different institutions
+in seconds, around the clock, over a central infrastructure called the SPI.
+Participants connect to it through regulated \emph{payment service providers}
+(PSPs): banks and licensed payment institutions that hold the end-user
+accounts. A Pix payment is identified by two strings that this paper relies
+on. The \emph{EndToEndId} (E2EID) is a unique identifier assigned when the
+payment is initiated and carried end-to-end through the rail; the receiving
+PSP learns it when the funds are credited, and the SPI enforces its
+uniqueness. The \emph{txid} is a merchant-side identifier that a payee embeds in
+a payment request (a QR code or ``copy-and-paste'' string) before any payment
+exists, so that the eventual payment can be matched back to the charge that
+solicited it. Nothing else about Pix is needed to follow the construction; the
+reader may substitute any instant-payment rail that exposes a unique per-payment
+identifier and a pre-payment charge identifier, together with a regulated
+intermediary able to attest settlement.
 
 \paragraph{Scope, stated precisely.}
 Proving that a fiat payment happened in order to release an on-chain escrow is
@@ -198,7 +219,7 @@ central-bank infrastructure itself attests the payment --- this is what the
 construction does \emph{not} provide today; \S\ref{sec:security} discusses
 four candidate paths toward it, none evaluated here. What we deliver is
 Level~1~+~Level~2. The gap between that and Level~3 is the residual Trusted-PSP
-assumption (Assumption~\ref{as:psp}), stated as the central fact about this
+assumption (Assumption~(I1)), stated as the central fact about this
 system, not a footnote to it.
 
 \paragraph{The general pattern, Pix as its instantiation.} Nothing in
@@ -299,8 +320,9 @@ Pix payment; (2)--(4) the rail carries it through both PSPs to the payee; (5,
 6) each PSP that needs to sign attests what it observed, over the
 commitments --- never the plaintext value or identifiers. \textbf{Trust
 boundary}: everything above is off-chain and PSP-attested; everything below
-is on-chain and cryptographically checked --- nothing below is derivable from
-anything above it except through the attestation (Property~\ref{prop:conf}).
+is on-chain and cryptographically checked --- the off-chain payment event
+reaches the on-chain state only through the PSP attestation and the ZK
+consistency checks of \S\ref{sec:construction}--\S\ref{sec:oracle}.
 \textbf{B (on-chain)}: (7, 8) a relayer submits the attestation(s) and the
 Groth16 proof $\pi$; (9) the contract checks the EIP-712 signature, domain
 anchor and expiry; (10) the proof is verified; (11) the tag is consumed and
@@ -419,7 +441,11 @@ K   &\;\overset{!}{=}\; \Poseidon(k) \\
 Equations (3) and (4) share the private witness \emph{amount} and \emph{txid},
 which is the two-phase binding. Binding \code{txid} into both commitments prevents
 a valid proof for one $(\text{amount}, \eeid)$ from being reused for a different
-charge.
+charge. The settlement circuit places no range constraint on \emph{amount};
+well-formedness of the value comes from the PSP recomputing $c_0$ from the
+amount it actually settled (\S\ref{sec:oracle}), not from the circuit, and only
+the compliance predicate of \S\ref{sec:predicates} decomposes the amount into
+bits.
 
 \paragraph{Settlement tag: one symbol, keyed.}
 We use a single symbol $\nu$ throughout for the settlement tag --- in ZK
@@ -452,7 +478,7 @@ therefore register $K=\Poseidon(k)$ on-chain at domain setup and expose it as a
 public signal of the circuit. Two tags accepted under the same $K$ provably come
 from the same $k$, so \emph{intra-domain} uniqueness holds by construction rather
 than by convention. Cross-domain uniqueness is a different claim and rests on the
-PSP's \eeid{}$\to$\code{txid} bijection (Assumption~\ref{as:psp}).
+PSP's \eeid{}$\to$\code{txid} bijection (Assumption~(I1)).
 
 \paragraph{$\nu$ is a selective-linkability primitive, not a privacy primitive
 against the key holder.} Whoever holds $k$ --- the PSP, in this deployment ---
@@ -461,7 +487,7 @@ every $\nu$ in the domain back to the E2EID that produced it: the entire
 domain's on-chain tag history is linkable, by construction, to whoever holds
 $k$. This is not an oversight to be fixed; it is what makes $k$ do useful work
 at all, and it is the same holder as the one already trusted for attestation
-(Assumption~\ref{as:psp}) --- keying $\nu$ adds no new party who can
+(Assumption~(I1)) --- keying $\nu$ adds no new party who can
 deanonymize the domain. What the key achieves is narrower and precisely
 stated: \emph{public unlinkability for any observer without $k$}, against the
 concrete attack of \S\ref{sec:construction} (a party that already holds
@@ -477,12 +503,12 @@ cannot see \eeid{} --- would accept a second settlement of an already-settled
 payment. Rotation is therefore expressed as starting a \emph{new} domain (new
 $K$, new escrows), and uniqueness across the two domains is not enforced by the
 circuit: like cross-domain uniqueness in general, it rests on the PSP's
-\eeid{}$\to$\code{txid} bijection (Assumption~\ref{as:psp}). A deployment that
+\eeid{}$\to$\code{txid} bijection (Assumption~(I1)). A deployment that
 anticipates key compromise should treat this as an operational cost of the
 design, not a footnote. Put precisely: \emph{domain separation is a security
 boundary}, the thing uniqueness (Property~\ref{prop:uniqueness}) is stated
 relative to, not merely a key-management convenience --- crossing it is
-exactly where the unconditional guarantee ends and Assumption~\ref{as:psp}
+exactly where the unconditional guarantee ends and Assumption~(I1)
 begins.
 
 \paragraph{Counterparty commitment.}
@@ -521,9 +547,12 @@ immutable medium, which is a poor posture under the Brazilian data-protection la
 $\mathsf{pc}$ from the debtor identifier in the payment message; the oracle
 attests it (\S\ref{sec:oracle}).
 \item The proof $\pi$ is generated over the public signals $(c_0,c,\nu,K,\mathsf{pc})$
-and \code{finalize}$(\pi)$ verifies it, cross-checks the oracle attestation for
-$\nu$ (same $c_0$ and same $\mathsf{pc}$), checks the domain anchor $K$, consumes
-the tag, and transitions the operation to \textsc{Finalized}. It becomes
+and \code{finalize}$(\pi)$ requires the operation to be \textsc{Locked} and
+$\nu$ unused, checks the domain anchor $K$, cross-checks the oracle attestation
+for $\nu$ (same $c_0$ and same $\mathsf{pc}$), then verifies $\pi$, and only
+then consumes the tag and transitions the operation to \textsc{Finalized}; the
+cheap checks run before the pairing so that a mismatched receipt reverts
+without paying for verification. It becomes
 \textsc{Irrevocable} only after the rail's refund window elapses without a
 reversal (\S\ref{sec:oracle}).
 \end{enumerate}
@@ -586,8 +615,11 @@ A payment for the wrong amount produces a different $c_0$, the receipt
 then refers to a commitment the escrow is not locked on, and the settlement does
 not close. The protocol thus verifies \emph{value consistency without the value
 appearing anywhere on-chain}. The \code{deadline} bounds the window in which a
-signed receipt can be used, containing the damage from a compromised PSP key. The
-receipt additionally carries $\mathsf{pc}$, the counterparty commitment of
+signed receipt can be used, containing the damage from a compromised PSP key ---
+provided the attestor bounds it: the contract enforces
+\code{block.timestamp <= deadline} and no upper cap, so a receipt signed with a
+distant deadline stays usable until then. The receipt additionally carries
+$\mathsf{pc}$, the counterparty commitment of
 \S\ref{sec:construction}, which the PSP computes over the debtor identifier in the
 payment message using the $\text{salt}_p$ shared at charge creation. This adds
 nothing to what an observer sees: $\mathsf{pc}$ is already a public signal of the
@@ -739,7 +771,7 @@ same committed party; and $\mathsf{pc}$ is a signed field of the PSP receipt
 with \code{finalize} requiring equality between the attested value and the
 proof's public signal. The predicates consume that same $\mathsf{pc}$. The
 counterparty they speak about is then, by construction, the counterparty that
-paid --- under Assumption~\ref{as:psp}: a PSP that signs a wrong $\mathsf{pc}$ is
+paid --- under Assumption~(I1): a PSP that signs a wrong $\mathsf{pc}$ is
 the same trusted-PSP residue as a PSP that signs a false $\mathsf{settled}$.
 
 \paragraph{Policy authority on-chain.}
@@ -749,7 +781,9 @@ Otherwise a malicious institution could prove compliance against a favorable
 self-chosen limit, or exclusion against an empty sanctions tree. The attestors
 pin the official policy (\code{setPolicyLimit}/\code{setKycRoot}, guarded by a
 \code{policyAdmin}) and reject any proof whose public policy signal does not equal
-it. We validated on-chain that a \emph{genuinely valid} Groth16 proof for a
+it. We validated, in the reference repository's compliance demonstration on
+the same testnet (whose transactions are not part of the artifact manifest of
+\S\ref{sec:impl}), that a \emph{genuinely valid} Groth16 proof for a
 self-chosen loose limit is rejected precisely because it does not match the
 official policy.
 
@@ -822,8 +856,8 @@ $2^{21}$ powers of tau) and is deferred to the pilot.
 
 \paragraph{Status (preliminary).}
 We report this post-quantum binding as \emph{preliminary}. Unlike the settlement
-and predicate circuits --- for which we give proving time and on-chain
-verification gas --- the full in-circuit ML-KEM binding has no end-to-end
+circuits --- for which we give proving time and on-chain verification gas ---
+the full in-circuit ML-KEM binding has no end-to-end
 proving-time or on-chain figure yet, pending the production-scale setup. What is
 established is that it \emph{compiles and is sized} on our exact stack; the
 selectable channel and the symmetric binding are validated; the full binding is
@@ -867,12 +901,19 @@ and, on an input with a high-entropy component, hiding (modeled as a random
 oracle)~\cite{poseidon}; \textbf{(A3)} ECDSA/EIP-712 is EUF-CMA; \textbf{(A4)}
 within a domain, \code{txid} uniquely identifies the agreed payment obligation
 and is not legitimately reused for two distinct charges (Charge-identifier
-uniqueness). (A4) is what lets \code{txid} do the anti-cross-charge work
+uniqueness); \textbf{(A5)} $\mathsf{keccak256}$ is collision-resistant for the
+binding hash the attestation oracle computes over $(c_0,\mathsf{pc})$
+(\S\ref{sec:oracle}). (A4) is what lets \code{txid} do the anti-cross-charge work
 Equations (3)--(4) rely on (\S\ref{sec:construction}); it is imposed
 operationally by the charge-creation flow (the orchestrator mints a fresh
 \code{txid} per charge and the PSP's own charge API rejects a duplicate), not
 proved by the circuit, which only checks that \emph{the same} witness
-\code{txid} appears in both commitments. The assumptions above are not all the
+\code{txid} appears in both commitments. (A5) is stated separately from (A2)
+because the two hash functions are used for different purposes and neither
+collision-resistance assumption implies the other: $\Poseidon$ binds
+circuit-internal witness values, while $\mathsf{keccak256}$ binds the
+oracle's off-circuit $(c_0,\mathsf{pc})$ pair to a single $\nu$
+(Theorem~\ref{thm:settlementbinding}). The assumptions above are not all the
 same \emph{kind} of assumption, and treating them as if they were is itself a
 source of overclaiming:
 
@@ -887,8 +928,9 @@ source of overclaiming:
 (A2) Poseidon hiding & heuristic (RO model) & preimage recovery, if the model is wrong \\
 (A3) ECDSA/EIP-712 EUF-CMA & cryptographic & forged attestations \\
 (A4) \code{txid} uniqueness & operational & cross-charge proof reuse \\
-Trusted PSP (Assumption~\ref{as:psp}) & institutional & false \code{settled} accepted \\
-Trusted setup (below) & cryptographic, contingent on process & forged proofs, if toxic waste leaked \\
+(A5) Keccak-256 coll.-res. & cryptographic & oracle binding forged (pc substitution) \\
+(I1) Trusted PSP & institutional & false \code{settled} accepted \\
+(S1) Trusted setup & cryptographic, contingent on process & forged proofs, if toxic waste leaked \\
 Policy-root correctness & governance & wrong predicate answers accepted \\
 \bottomrule
 \end{tabular}
@@ -921,36 +963,214 @@ directly; this holds independent of Groth16 or of any protocol logic above it.
 
 \begin{property}[2B --- Two-phase consistency]
 \label{prop:twophase}
-For any accepted proof, the amount and \code{txid} witnessed in $c$ are
-identical to the amount and \code{txid} witnessed in $c_0$.
+For any accepting proof $\pi$ for public inputs $(c_0,c,\nu,K,\mathsf{pc})$,
+the amount and \code{txid} used to construct $c$ are identical to those
+used to construct $c_0$.
 \end{property}
-\begin{proof}[Proof sketch]
-By (A1) an accepting prover knows a witness satisfying (3)--(7); amount and
-\code{txid} are the \emph{same witness signals} in (3) and (4) --- not merely
-constrained to be equal, but literally one circuit signal read twice --- so a
-mismatch between the two is not expressible in an accepting witness at all.
-This is what an escrow locked on $c_0$ relies on for the terms it locked to be
-the terms that settled.
+
+\begin{theorem}[Two-phase consistency]
+\label{thm:twophase}
+Assuming the knowledge soundness of Groth16 (A1), except with negligible
+probability, every accepting proof admits a witness
+$w=(\text{amount},\text{salt}_0,\text{salt},\eeid,\text{txid},k,\text{party},
+\text{salt}_p)$ satisfying the circuit relation of \S\ref{sec:construction}
+(Equations 3--7). In that relation, the same witness values \emph{amount}
+and \code{txid} occur in both commitment equations --- Equation~(3),
+$c_0=\Poseidon(\text{amount},\text{salt}_0,\text{txid})$, and Equation~(4),
+$c=\Poseidon(\text{amount},\text{salt},\eeid,\text{txid})$. Consequently, an
+accepting proof cannot represent a transition in which the amount or
+\code{txid} used for the post-payment commitment $c$ differs from the
+amount or \code{txid} committed at escrow creation, i.e.\ in $c_0$.
+\end{theorem}
+
+\begin{proof}
+Let $\pi$ be an accepting Groth16 proof. By knowledge soundness (A1), except
+with negligible probability, there exists an extracted witness $w$
+satisfying the circuit relation. The circuit contains a single witness
+variable \emph{amount}, used in both Equation~(3) and Equation~(4), and a
+single witness variable \code{txid}, likewise used in both. There are
+therefore no independent values $\text{amount}_0,\text{amount}_1$ or
+$\text{txid}_0,\text{txid}_1$ that could be chosen separately for $c_0$ and
+$c$: the circuit relation does not admit them. Thus, for every accepting
+witness, $\text{amount}_{c_0}=\text{amount}_c=\text{amount}$ and
+$\text{txid}_{c_0}=\text{txid}_c=\text{txid}$. A proof for which either
+value differed between the two phases would require a witness satisfying a
+circuit relation the circuit does not define; by knowledge soundness, no
+such witness can be extracted from an accepting proof except with negligible
+probability. Therefore,
+\begin{equation}
+\Pr[\mathsf{Bad}_{2B}(\mathcal{A})]
+\;\leq\;
+\mathrm{Adv}^{\mathrm{KS}}_{\mathrm{Groth16}}(\mathcal{A}),
+\end{equation}
+where $\mathsf{Bad}_{2B}(\mathcal{A})$ is the event that $\mathcal{A}$
+produces an accepting proof whose extracted witness assigns different
+amount or \code{txid} values to $c_0$ and $c$.
 \end{proof}
 
-\begin{property}[2C --- Settlement binding]
+\begin{corollary}[Escrow-to-settlement term consistency]
+\label{cor:escrowconsistency}
+If an escrow is created against $c_0$, any subsequently accepted proof for
+that escrow necessarily uses the same amount and \code{txid} in its
+post-payment commitment $c$. The property does not by itself establish that
+either commitment corresponds to a real-world payment; that semantic fact
+remains outside the cryptographic relation and is handled by the PSP
+attestation (Property~\ref{prop:auth}) and the Trusted-PSP assumption
+(Assumption~(I1)).
+\end{corollary}
+
+\begin{property}[2C --- Authenticated settlement binding]
 \label{prop:settlementbinding}
-An accepted settlement's tag $\nu$ and counterparty commitment $\mathsf{pc}$
-are the ones a registered PSP attested for this $c_0$
-(Property~\ref{prop:auth}), and $\nu=\Poseidon(\eeid,k)$ for the \eeid{}
-witnessed in $c$ under the domain's registered key.
+Let $D$ be a domain with registered anchor $K_D=\Poseidon(k_D)$, where $k_D$
+is the domain secret; elsewhere in this paper, where a single domain is
+fixed throughout, we write $K$, $k$ without the subscript, and $K_D$, $k_D$
+specialize to exactly those when $D$ is held fixed. Let an adversary
+$\mathcal{A}$ interact with the public settlement system and submit
+arbitrary proofs and receipts to the attestation oracle and $\mathsf{Settle}$.
+
+An accepted settlement is \emph{authenticatedly settlement-bound} if, except
+with negligible probability, there exist a registered attestor $P$; an
+EIP-712 receipt $R=(c_0,\nu,\mathsf{pc},\mathrm{true},\mathsf{deadline})$; a
+valid PSP signature $\sigma=\mathsf{Sign}_P(R)$; and a Groth16 witness
+$w=(\text{amount},\text{salt}_0,\text{salt},\eeid,\text{txid},k,\text{party},
+\text{salt}_p)$ satisfying the circuit constraints of \S\ref{sec:construction}
+(Equations 3--7), restated here for convenience:
+\begin{align*}
+c_0 &= \Poseidon(\text{amount},\text{salt}_0,\text{txid}), &
+c   &= \Poseidon(\text{amount},\text{salt},\eeid,\text{txid}), \\
+\nu &= \Poseidon(\eeid,k), &
+K_D &= \Poseidon(k), \\
+\mathsf{pc} &= \Poseidon(\text{party},\text{salt}_p), & &
+\end{align*}
+and, moreover, the receipt authenticated by $P$ is bound to exactly the same
+$c_0$, $\nu$, and $\mathsf{pc}$ accepted by $\mathsf{Settle}$.
+
+This property is an authentication and cryptographic-consistency property.
+It does \textbf{not} assert that the PSP's statement $\mathsf{settled}=
+\mathrm{true}$ is truthful. The latter remains Assumption~(I1).
 \end{property}
-\begin{proof}[Proof sketch]
-$\mathsf{Settle}$'s cross-check (\S\ref{sec:construction},
-\S\ref{sec:oracle}) requires the oracle's stored binding for $\nu$ to equal
-$\mathsf{keccak256}(c_0\Vert\mathsf{pc})$; by (A3) that binding could only be
-recorded by a registered PSP's signature over exactly this $(c_0,\mathsf{pc})$
-pair. The tag equation is Equation~(5), checked by the same argument as
-Property~\ref{prop:twophase}.
+
+\begin{theorem}[Settlement-binding theorem]
+\label{thm:settlementbinding}
+Conditioned on the deterministic correctness of the deployed
+$\mathsf{Settle}$ contract with respect to the acceptance conditions
+specified in \S\ref{sec:construction} --- a property of the deployed code,
+not a cryptographic hypothesis, and hence not itself a term in the bound
+below --- and on the registered domain anchor $K_D$ being immutable during
+the lifetime of domain $D$ (\S\ref{sec:construction}), assume further: (1)
+Groth16 is knowledge-sound for the deployed \code{settlement\_verify\_v2}
+circuit; (2) $\Poseidon$ is collision-resistant over the BN254 field; (3)
+ECDSA/EIP-712 is EUF-CMA secure; (4) $\mathsf{keccak256}$ is
+collision-resistant for the oracle's binding hash --- exactly (A1)--(A3) and
+(A5) above, gathered here so the theorem's cryptographic hypotheses are
+self-contained rather than scattered.
+
+Then, for every probabilistic polynomial-time adversary $\mathcal{A}$, the
+probability that $\mathcal{A}$ causes $\mathsf{Settle}$ to accept a
+settlement for which either (a) no registered PSP signed the accepted tuple
+$(c_0,\nu,\mathsf{pc},\mathrm{true},\mathsf{deadline})$, or (b) the accepted
+$\nu$ is not equal to $\Poseidon(\eeid,k_D)$ for the \eeid{} contained in an
+accepting witness for the registered domain, is negligible. More precisely,
+\begin{equation}
+\Pr[\mathsf{Bad}_{SB}(\mathcal{A})]
+\;\leq\;
+\mathrm{Adv}^{\mathrm{EUF\text{-}CMA}}_{\mathrm{ECDSA}}(\mathcal{A})
++\mathrm{Adv}^{\mathrm{KS}}_{\mathrm{Groth16}}(\mathcal{A})
++\mathrm{Adv}^{\mathrm{CR}}_{\Poseidon}(\mathcal{A})
++\mathrm{Adv}^{\mathrm{CR}}_{\mathrm{Keccak}}(\mathcal{A}),
+\end{equation}
+where each term on the right is the standard cryptographic advantage
+against the named primitive, and the bound holds under the deterministic
+conditioning stated above --- a contract-correctness failure is a software
+bug outside the reduction, not a probabilistic event the reduction
+accounts for.
+\end{theorem}
+
+\noindent The theorem binds $\nu$ to the \eeid{} contained in the accepting ZK
+witness; it does \textbf{not}, by itself, establish that the PSP observed
+that same \eeid{}. That latter correspondence is part of the Trusted-PSP
+assumption (I1).
+
+\begin{proof}
+Suppose $\mathcal{A}$ causes $\mathsf{Settle}$ to accept an operation. By the
+acceptance condition of $\mathsf{Settle}$, the submitted Groth16 proof
+verifies against the public tuple $(c_0,c,\nu,K_D,\mathsf{pc})$. By Groth16
+knowledge soundness, except with negligible probability there exists an
+extractor obtaining a witness $w=(\text{amount},\text{salt}_0,\text{salt},
+\eeid,\text{txid},k,\text{party},\text{salt}_p)$ satisfying every circuit
+constraint. In particular, the witness satisfies $\nu=\Poseidon(\eeid,k)$ and
+$K_D=\Poseidon(k)$ --- precisely Equations~(5) and~(6) of
+\S\ref{sec:construction}.
+
+Because $K_D$ is the immutable anchor registered for domain $D$, and because
+the domain key was generated as $K_D=\Poseidon(k_D)$, we have both
+$\Poseidon(k)=K_D=\Poseidon(k_D)$. If $k\neq k_D$, these are two distinct
+preimages of the same Poseidon output; under Poseidon collision resistance
+this occurs only with negligible probability. Therefore, except with
+negligible probability, $k=k_D$. Substituting into (5) gives
+$\nu=\Poseidon(\eeid,k_D)$: an accepted proof cannot use an arbitrary domain
+key or an independently chosen settlement tag without either violating
+Groth16 soundness or finding a Poseidon collision.
+
+It remains to establish that the accepted $c_0$, $\nu$, and $\mathsf{pc}$ are
+the values authenticated by the PSP. The attestation oracle accepts a
+receipt only after recovering the signer from the EIP-712 digest and
+checking that the signer is a registered attestor, that
+$\mathsf{settled}=\mathrm{true}$, that the receipt is unexpired, and that
+$\nu$ has not previously been attested. The oracle stores the binding
+associated with $\nu$ as $\mathsf{keccak256}(c_0\Vert\mathsf{pc})$.
+$\mathsf{Settle}$ subsequently requires that the oracle's stored binding for
+the submitted $\nu$ equal $\mathsf{keccak256}(c_0\Vert\mathsf{pc})$ for the
+$c_0$ locked by the escrow and the $\mathsf{pc}$ supplied as the proof's
+public signal.
+
+Therefore, if $\mathcal{A}$ presents an accepted settlement for which no
+registered PSP signed the exact tuple
+$(c_0,\nu,\mathsf{pc},\mathrm{true},\mathsf{deadline})$, then either (i) the
+EIP-712 signature was forged or altered, contradicting EUF-CMA security
+(A3); or (ii) the contract/oracle accepted a tuple not authenticated by the
+registered attestor, which is excluded by the theorem's conditioning on
+deterministic contract correctness rather than by a cryptographic
+reduction --- (ii) is a contract-correctness failure, not a probabilistic
+event this bound accounts for. Similarly, if the accepted $\mathsf{pc}$
+differs from the PSP-attested $\mathsf{pc}'$, the oracle binding check
+would require $\mathsf{keccak256}(c_0\Vert\mathsf{pc})=\mathsf{keccak256}(c_0\Vert
+\mathsf{pc}')$ for $\mathsf{pc}\neq\mathsf{pc}'$, except with negligible
+probability under (A5).
+
+Consequently, except with negligible probability, every accepted settlement
+contains $\nu=\Poseidon(\eeid,k_D)$ for the \eeid{} in the accepting witness,
+and the same $\nu$, $c_0$, and $\mathsf{pc}$ are authenticated by a
+registered PSP receipt. This proves authenticated settlement binding.
 \end{proof}
+
+\begin{corollary}[Counterparty binding]
+\label{cor:counterparty}
+Under the hypotheses of Theorem~\ref{thm:settlementbinding}, an accepted
+settlement cannot substitute an arbitrary counterparty commitment
+$\mathsf{pc}'$ for the commitment $\mathsf{pc}$ authenticated by the PSP,
+except with negligible probability. Therefore, any compliance predicate of
+\S\ref{sec:predicates} subsequently evaluated over the public $\mathsf{pc}$
+is bound to the same counterparty commitment the PSP authenticated for the
+settlement. This does not establish that the PSP correctly identified the
+payer --- that semantic claim remains part of Assumption~(I1).
+\end{corollary}
+
+\paragraph{Security-boundary note.} Theorem~\ref{thm:settlementbinding}
+deliberately does not claim that the PSP's statement
+$\mathsf{settled}=\mathrm{true}$ is objectively true at the payment rail. It
+establishes only that (1) a registered PSP authenticated the statement; (2)
+the authenticated statement refers to the same $c_0$, $\nu$, and
+$\mathsf{pc}$ used by the accepted settlement; and (3) the accepted $\nu$ is
+cryptographically bound to the \eeid{} in the Groth16 witness under the
+registered domain key. The implication ``PSP signed
+$\mathsf{settled}=\mathrm{true}$ $\Rightarrow$ payment actually settled'' is
+therefore intentionally outside the theorem and remains the institutional
+Trusted-PSP assumption of the construction (Assumption~(I1)).
+
 \noindent Properties~\ref{prop:binding} and~\ref{prop:twophase} are
 unconditional under (A1)--(A2). Property~\ref{prop:settlementbinding} is not:
-it routes through Assumption~\ref{as:psp} for what the attestation
+it routes through Assumption~(I1) for what the attestation
 \emph{means}, even though \emph{that a registered key produced it} is
 unconditional under (A3) --- exactly the authentication/truthfulness split
 Property~\ref{prop:auth} states.
@@ -959,7 +1179,7 @@ Property~\ref{prop:auth} states.
 \label{prop:conf}
 For any PPT adversary observing the public transcript --- $(c_0,c,\nu,K,\mathsf{pc},\pi)$
 \emph{together with the calldata of} \code{attest} \emph{and} \code{settle},
-i.e. including $\mathsf{Receipt}(c_0,\nu,\mathsf{settled},\mathsf{deadline})$
+i.e. including $\mathsf{Receipt}(c_0,\nu,\mathsf{pc},\mathsf{settled},\mathsf{deadline})$
 and its valid EIP-712 signature under a registered attestor key --- the
 adversary's advantage in recovering $(\text{amount},\eeid,\text{party},\text{txid})$
 is negligible. The property is scoped to \emph{on-chain observers without
@@ -999,9 +1219,15 @@ random-oracle heuristic: $c_0$ and $c$ under $\approx 254$-bit salts
 $\text{salt}_p$, and $\nu$ under the $\approx 254$-bit domain key $k$.
 $K=\Poseidon(k)$ is a commitment to that same high-entropy key and is constant
 per domain, so it carries no \emph{per-operation} information beyond
-identifying the domain. Under the random-oracle model, each image is
-independently indistinguishable from a uniformly random field element to
-anyone without its corresponding blinding factor. \emph{(C) Metadata is
+identifying the domain. We do not claim these four images are mutually
+independent as random variables --- $c_0$ and $c$ share the witness values
+\emph{amount} and \code{txid} (Property~\ref{prop:twophase}), and $\nu$ and
+$K$ share $k$ --- only that each is individually hiding. Under the
+random-oracle heuristic, each commitment image is computationally hiding
+with respect to its high-entropy blinding component; under this heuristic,
+the stated transcript does not provide a feasible recovery strategy for the
+excluded preimages beyond the explicitly excluded side information.
+\emph{(C) Metadata is
 explicitly out of scope, not implicitly covered.} This property says nothing
 about transaction existence, timing, on-chain addresses (submitter, relayer,
 attestor) or cross-operation linkability from a repeated $\mathsf{pc}$ or $K$
@@ -1013,7 +1239,7 @@ the signature bits themselves are simulatable --- a PPT adversary lacking the
 attestor's key cannot produce one, which is precisely EUF-CMA (A3), not a
 hiding property, and is exactly why it is Property~\ref{prop:auth}'s claim,
 not this one's. What this property needs, and gets, is narrower: the message
-$\mathsf{Receipt}(c_0,\nu,\mathsf{settled},\mathsf{deadline})$ the adversary
+$\mathsf{Receipt}(c_0,\nu,\mathsf{pc},\mathsf{settled},\mathsf{deadline})$ the adversary
 sees signed contains no plaintext of $(\text{amount},\eeid,\text{party},\text{txid})$
 --- every field in it is either already covered by (B) or a public boolean/timestamp
 --- so \emph{observing a valid signature over that message} gives the
@@ -1027,23 +1253,62 @@ what the signed message reveals.
 
 \begin{property}[Domain-scoped settlement uniqueness]
 \label{prop:uniqueness}
-Within a domain under a fixed, immutable key $K$, and under
-Assumption~\ref{as:psp}'s PSP \eeid{}$\to$\code{txid} bijection, each settled
-payment closes at most one operation. The property is explicitly
-\emph{domain-scoped}: it neither states nor implies uniqueness across domains
-(distinct $K$, including a rotated one) without that same assumption.
+Within a single deployed (oracle, $\mathsf{Settle}$) instance pair anchored at
+a fixed, immutable key $K$, and under Assumption~(I1)'s PSP
+\eeid{}$\to$\code{txid} bijection, each settled payment closes at most one
+operation. The property is explicitly \emph{instance-scoped}: it neither
+states nor implies uniqueness across domains (distinct $K$, including a rotated
+one), nor across two instance pairs that happen to share the same $K$, without
+that same assumption.
 \end{property}
-\begin{proof}[Proof sketch]
-$\nu$ is deterministic in \eeid{} given $k$ --- determinism in \eeid{} is (5) ---
-and the public anchor $K$ forces all accepted proofs in a domain to use the same
-$k$ (6); the oracle and the settlement each record the tag as single-use, so a
-second settlement of the same \eeid{} presents an already-recorded tag and is
-rejected. Cross-domain uniqueness is not implied by the circuit and rests on the
-PSP's \eeid{}$\to$\code{txid} bijection (Assumption~\ref{as:psp}). Uniqueness is
-furthermore \emph{per domain key}: $K$ is immutable per domain
-(\S\ref{sec:construction}), so rotation means a new domain, across which ---
-exactly as across domains in general --- uniqueness rests on
-Assumption~\ref{as:psp}.
+
+\begin{theorem}[Domain-scoped settlement uniqueness]
+\label{thm:uniqueness}
+For a fixed domain anchor $K_D$ and a fixed (oracle, $\mathsf{Settle}$) instance
+pair, assuming domain-key immutability
+(\S\ref{sec:construction}), collision resistance of $\Poseidon$ (A2),
+single-use enforcement of $\nu$ by the oracle and by $\mathsf{Settle}$
+(\S\ref{sec:oracle}, \S\ref{sec:construction}), and the PSP's
+\eeid{}$\to$\code{txid} uniqueness assumption (Assumption~(I1)), no
+PPT adversary can cause two accepted settlements corresponding to the same
+\eeid{}, except with negligible probability.
+\end{theorem}
+
+\begin{proof}
+The proof follows the same four steps as the tag argument of
+Theorem~\ref{thm:settlementbinding}, specialized to two accepted settlements
+rather than one.
+\begin{enumerate}
+\item[(i)] The same \eeid{} under the same domain key $k_D$ produces the same
+tag: $\nu=\Poseidon(\eeid,k_D)$ is a deterministic function of \eeid{} once
+$k_D$ is fixed (Equation~(5) of \S\ref{sec:construction}).
+\item[(ii)] $K_D$ forces the same key across both proofs: by the collision
+argument of Theorem~\ref{thm:settlementbinding}, any proof accepted under the
+public anchor $K_D$ extracts a witness key $k$ with $\Poseidon(k)=K_D$, and
+except with negligible Poseidon-collision probability, $k=k_D$ for
+\emph{every} such proof --- so two settlements in the same domain cannot use
+two different domain keys.
+\item[(iii)] $\mathsf{Settle}$ marks $\nu$ as used on first acceptance: on the
+first accepted settlement for this \eeid{}, it records $\nu$ as spent in its
+own storage (\code{tagUsed}), and the oracle likewise refuses to attest a tag
+twice (\S\ref{sec:construction}). Both records are per deployed instance; no
+registry of spent tags indexed by $K$ exists in the reference artifacts.
+\item[(iv)] A second settlement for the same \eeid{} presents the same $\nu$
+(by (i)--(ii)) and is rejected, since $\mathsf{Settle}$ requires an unused
+tag (iii).
+\end{enumerate}
+Therefore, except with negligible probability, no two accepted settlements
+in the same instance correspond to the same \eeid{}. Cross-domain uniqueness
+(distinct $K_D$, including a rotated one) is not implied by this argument ---
+a fresh domain admits a fresh $k_D$ and hence a fresh $\nu$ for the same
+\eeid{} --- and rests entirely on the PSP's \eeid{}$\to$\code{txid} bijection,
+Assumption~(I1). Nor is uniqueness across two instance pairs deployed under the
+same $K_D$: the artifact record itself deploys a fresh oracle and
+$\mathsf{Settle}$ per negative case precisely because the oracle refuses to
+re-attest a tag, and the same $\nu$ is accepted again by the fresh pair. A
+shared registry of spent tags per $K_D$, consulted by every $\mathsf{Settle}$
+instance of a domain, would lift the property to the domain; it is listed in
+\S\ref{sec:futurework}.
 \end{proof}
 
 \begin{property}[Attestation unforgeability]
@@ -1053,7 +1318,7 @@ with $\mathsf{settled}=\mathsf{true}$ for the operation's $c_0$ and for the
 proof's counterparty commitment $\mathsf{pc}$. This property is
 \emph{authentication of the attestation}, i.e. that a registered key produced
 it --- it is \emph{not} truthfulness of the underlying settlement claim, which
-is exactly the residual trust of Assumption~\ref{as:psp}.
+is exactly the residual trust of Assumption~(I1).
 \end{property}
 \begin{proof}[Proof sketch]
 Acceptance recovers the signer via \code{ECDSA.recover} over the EIP-712 digest
@@ -1065,8 +1330,8 @@ assumption.
 
 Soundness (Properties~\ref{prop:binding}--\ref{prop:settlementbinding}
 and~\ref{prop:auth}) holds only under (A1)'s trusted-setup premise, which
-the reference artifacts meet at development grade only (the trusted-setup
-assumption of \S\ref{sec:security}). We now enumerate adversaries informally,
+the reference artifacts meet only through a single-contributor ceremony
+(Assumption~(S1) of \S\ref{sec:security}). We now enumerate adversaries informally,
 including those outside the formal statements above.
 
 \section{Security Analysis and Threat Model}
@@ -1107,7 +1372,7 @@ Prover picks a clean counterparty for the compliance predicates
 and a signed field of the PSP receipt, computed by the PSP over the payer
 identifier in the payment message; \code{finalize} requires the attested
 $\mathsf{pc}$ to equal the proof's public signal. A PSP that signs a wrong
-$\mathsf{pc}$ is Assumption~\ref{as:psp}. \\[2pt]
+$\mathsf{pc}$ is Assumption~(I1). \\[2pt]
 A receipt is attested with a wrong $c_0$ or $\mathsf{pc}$ --- a PSP software
 bug, \emph{or} a compromised/malicious PSP deliberately griefing, since the
 same action a bug produces also destroys liveness on demand
@@ -1122,7 +1387,7 @@ stronger one from; \code{cancel} bounds the damage to one missed deadline, not
 a permanently stuck escrow. \\[2pt]
 Domain key rotation used to replay a settled payment
 & \textbf{Mitigated by construction}: $K$ is immutable per domain; rotation = new
-domain, and cross-domain uniqueness rests on Assumption~\ref{as:psp}
+domain, and cross-domain uniqueness rests on Assumption~(I1)
 (\S\ref{sec:construction}). \\[2pt]
 Soundness: a false proof accepted
 & \textbf{Mitigated} by Groth16 soundness, \emph{under} the circuit's trusted
@@ -1157,8 +1422,15 @@ window --- the rail allows up to $90$ days --- is an accepted residual risk of t
 asset leg (\S\ref{sec:reversal}). \\[2pt]
 PSP key compromised
 & \textbf{Partially mitigated}: receipts carry a \code{deadline}, bounding the
-window of abuse, and the attestor can be revoked for future attestations. A
-compromised key remains able to attest within the window. \\[2pt]
+window of abuse if the PSP signs short deadlines (the contract imposes no cap),
+and the attestor can be revoked for future attestations. A compromised key
+remains able to attest within the window. \\[2pt]
+Front-running \code{lock} on a known $c_0$, or locking it with a hostile deadline
+& \textbf{Not mitigated in the contract}: \code{lock} is permissionless and
+first-writer-wins (\code{state == None}), so anyone who learns $c_0$ before the
+legitimate party can lock it with an arbitrary deadline and deny the operation
+until \code{cancel} becomes possible. The asset escrow above this state machine
+must be the one that calls \code{lock}, or gate it to an expected caller. \\[2pt]
 Liveness: the PSP never signs, leaving the operation stuck
 & \textbf{Mitigated}: \code{lock} takes an explicit \code{deadline}, and
 \code{cancel} lets \emph{anyone} move a still-\code{Locked} operation to
@@ -1206,7 +1478,7 @@ Same amount, same \code{txid} across $c_0$/$c$ & ZK (Property~\ref{prop:twophase
 Tag deterministic in \eeid{}, single-use per domain & ZK + on-chain registry (Property~\ref{prop:uniqueness}) \\
 E2EID genuinely bound to this settlement & ZK + PSP attestation (Property~\ref{prop:settlementbinding}) \\
 Counterparty commitment is the one that paid & PSP attestation + ZK cross-check (\S\ref{sec:predicates}) \\
-Settlement (credit availability) actually happened & PSP attestation alone (Assumption~\ref{as:psp}) \\
+Settlement (credit availability) actually happened & PSP attestation alone (Assumption~(I1)) \\
 Central-bank / rail truth & \textbf{not established} (\S\ref{sec:security}, paths i--iv) \\
 Liveness if the PSP never attests & protocol timeout (\code{cancel}, \S\ref{sec:oracle}) \\
 Finality against a later refund & deployment policy choice, not cryptography (\S\ref{sec:reversal}) \\
@@ -1248,16 +1520,16 @@ statements, defeating soundness (Properties~\ref{prop:binding},
 \ref{prop:twophase}, \ref{prop:settlementbinding}
 and~\ref{prop:uniqueness}) entirely --- the most severe compromise on this
 list, and the reason \S\ref{sec:security} states the reference setup's
-development grade explicitly rather than in a footnote. \\
+single-contributor ceremony explicitly rather than in a footnote. \\
 Registry owner key (policy admin) & Add a hostile attestor or rewrite policy
-roots; mitigated only by a production multisig-with-timelock, not by this
-prototype's single key. \\
+roots; change \code{disputeWindow}, which \code{isIrrevocable} reads live, and
+thereby alter the finality of tags already attested; mitigated only by a
+production multisig-with-timelock, not by this prototype's single key. \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\begin{assumption}[Trusted PSP]
-\label{as:psp}
+\begin{assumption}[Trusted PSP (I1)]
 The registered attestor(s) sign \code{settled=true} only for instant payments the
 PSP observed as settled and credited, and hold an \emph{authoritative mapping}
 $(\text{txid}\leftrightarrow\eeid\leftrightarrow\text{amount}\leftrightarrow
@@ -1283,11 +1555,27 @@ with the obvious attack, and the realistic residual risk is closer to
 not a proof: an institution under pressure, or an attacker holding the key within
 the receipt deadline, still produces a valid attestation.
 
-\begin{assumption}[Trusted setup]
+\begin{assumption}[Trusted setup (S1)]
 Groth16 soundness holds provided the per-circuit setup was performed such that
-the toxic waste was discarded. The reference artifacts use a development-grade
-setup; a production deployment requires a multi-party ceremony. This is a known
-limitation, not a claim.
+the toxic waste was discarded. The reference artifacts for
+\code{settlement\_verify\_v2} were produced by a phase-2 ceremony consisting of
+one participant contribution followed by a beacon; both are recorded in the
+\code{.zkey} transcript and can be re-verified with \code{snarkjs zkey verify}
+against the published \code{.r1cs} and the Hermez \code{.ptau}. The
+participant's entropy was discarded. This is a \emph{single-contributor}
+ceremony run by the authors: it makes $\delta$ a secret-derived point rather
+than the group generator, but it offers no guarantee beyond the honesty of that
+one contributor, and the beacon used is a fixed placeholder rather than a
+public, verifiably-future randomness source. A production deployment requires a
+multi-party ceremony with independent participants and a public beacon. This is
+a known limitation, not a claim.
+
+An earlier build of this verifier had been exported directly from
+\code{groth16 setup} with no contribution at all, so that $\delta$ equalled the
+generator and proofs were forgeable by anyone. That artifact is superseded by the
+one described here and must not be used as evidence for any property in this
+paper; the on-chain addresses in the artifact record refer to the
+post-ceremony deployment.
 \end{assumption}
 
 \paragraph{Path to removing the PSP assumption.}
@@ -1343,7 +1631,7 @@ and absence proves nothing. This is a real, separate assumption on top of the
 signature itself, and path~(b) below should not be read as delivering
 non-membership proofs until that completeness claim exists for the specific
 rail artifact used. At that point
-Assumption~\ref{as:psp} stops meaning \emph{trusted} PSP and starts meaning
+Assumption~(I1) stops meaning \emph{trusted} PSP and starts meaning
 \emph{accountable} PSP --- the attestor can still lie, but the lie becomes
 provable and attributable ex post, which is the deterrent regulated institutions
 actually answer to. Two realizations, in increasing order of independence.
@@ -1402,8 +1690,9 @@ cryptographic one.
 
 \paragraph{Privacy model: what is and is not hidden.}
 The construction hides, on-chain, the payment \emph{amount}, the \emph{parties},
-and the payment identifiers (\eeid, txid): all appear only as Poseidon images,
-with negligible leakage under (A2). It does \emph{not} hide: (i) the
+and the payment identifiers (\eeid, txid): these values appear only through
+Poseidon commitments or ZK witnesses, and are not carried in plaintext by the
+attestation receipt, with negligible leakage under (A2). It does \emph{not} hide: (i) the
 \emph{existence} and \emph{timing} of an operation --- a settlement transaction is
 public; (ii) the \emph{on-chain addresses} that submit the settlement and relay
 the attestation, and the \emph{attestor address} itself --- address-level
@@ -1476,7 +1765,13 @@ the retained unkeyed ablation circuit discussed below.
 its cost can be compared against the keyed \code{pix\_nullifier\_verify} and
 against the primary \code{settlement\_verify\_v2} --- these are three distinct
 circuits, and none of the figures above should be read as three measurements of
-the same one. The primary circuit has $1{,}260$ wires and $4{,}229$ labels,
+the same one. Two facts about the ablation must be stated: it is also the
+circuit that the same repository's ERC-1 reference flows deploy behind their
+ZK domains (a use outside this paper's construction), and the artifact deployed
+there is an \code{--O1} build ($516 + 635 = 1{,}151$ constraints), not the
+\code{--O2} figure tabulated above. The settlement construction of this paper
+uses \code{settlement\_verify\_v2} exclusively. The primary circuit has
+$1{,}260$ wires and $4{,}229$ labels,
 five Poseidon gadgets (arities $3,4,2,1,2$), and Groth16 proofs of $8$ field
 elements ($\approx 256$ bytes) over BN254.
 
@@ -1506,27 +1801,24 @@ already performed.
 \toprule
 \textbf{Circuit} & \textbf{Prove} & \textbf{Verify (off-chain)} & \textbf{\code{verifyProof} gas} \\
 \midrule
-\code{settlement\_verify\_v2} & $151.2$ ms & $13.6$ ms & $\mathbf{243{,}194}$ \\
+\code{settlement\_verify\_v2} & $151.2$ ms & $13.6$ ms & $\mathbf{243{,}182}$ \\
 \code{pix\_nullifier\_verify}      & $110.5$ ms & $14.0$ ms & --- \\
-\code{pix\_payment\_verify} (ablation) & $130.1$ ms & $14.7$ ms & $238{,}387$ \\
+\code{pix\_payment\_verify} (ablation) & $130.1$ ms & $14.7$ ms & --- \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent We deliberately do \emph{not} quote a measured delta against the
-two-signal ablation. The two verifiers ($238{,}387$ gas for
-\code{pix\_payment\_verify}, $243{,}194$ for \code{settlement\_verify\_v2}) were
-generated and measured under conditions we cannot certify identical --- distinct
-snarkjs invocations, potentially distinct trusted-setup runs --- so the two
-figures are not a controlled A/B on signal count alone. As a sanity check: the
-na\"ive difference between them ($4{,}807$ gas) is \emph{smaller} than the cost
-three extra public signals must add on their own under EIP-1108 (one
-\code{alt\_bn128} scalar multiplication plus one addition per signal, $\approx
-6{,}150$ gas each, $\approx 18{,}500$ for three), which confirms the two
-measurements are not directly comparable rather than telling us what the true
-per-signal delta is; we do not report a delta figure, measured or expected, until
-a same-template re-measurement (\S\ref{sec:futurework}) produces one we would
-stand behind. The dominant cost of either verifier remains the four-pairing check
+\noindent We deliberately do \emph{not} quote an on-chain figure, or a delta,
+for the two-signal ablation. An earlier draft carried a verifier-gas number for
+it that had been measured in a session whose transaction was not retained in
+the artifact manifest, under a snarkjs invocation and a setup run we cannot
+certify identical to the primary circuit's; a figure without a hash a reader
+can look up has no place in the table. The expected direction is not in doubt
+--- under EIP-1108 each public signal adds one \code{alt\_bn128} scalar
+multiplication plus one addition, $\approx 6{,}150$ gas, so three extra
+signals should cost $\approx 18{,}500$ gas on top of the shared four-pairing
+check --- but we report no delta, measured or expected, until a same-template
+re-measurement (\S\ref{sec:futurework}) produces one we would stand behind. The dominant cost of either verifier remains the four-pairing check
 ($\approx 181{,}000$ gas: $45{,}000 + 34{,}000\times 4$, EIP-197).
 
 \paragraph{Gas of the complete calls.}
@@ -1543,8 +1835,8 @@ the artifact manifest.
 \midrule
 \code{lock(c0, deadline)} --- escrow locks on the agreed terms, with a liveness deadline (\S\ref{sec:oracle}) & $74{,}982$ \\
 \code{attest(receipt, signature)} --- ECDSA recover, checks, tag storage (v2: $88{,}646$) & $90{,}913$ \\
-\textbf{\code{finalize(proof)} --- complete settlement (v2: $352{,}983$)} & $\mathbf{353{,}315}$ \\
-\quad of which \code{verifyProof} (Groth16, 5 public signals) & $243{,}194$ \\
+\textbf{\code{finalize(proof)} --- complete settlement (v2: $352{,}983$)} & $\mathbf{353{,}062}$ \\
+\quad of which \code{verifyProof} (Groth16, 5 public signals) & $243{,}182$ \\
 \code{cancel(c0)} --- after the deadline, Locked $\to$ Expired & $30{,}259$ \\
 \code{attestReversal(reversal, signature)} & $63{,}529$ \\
 \bottomrule
@@ -1556,15 +1848,24 @@ the receipt, the \code{finalize} cross-check, and the \code{lock}/\code{cancel}
 liveness timeout); v2 figures are given alongside for the two calls whose
 struct changed relative to it. \code{attest} costs $2{,}267$ gas more than v2
 (one extra bytes32 field in calldata and in the EIP-712 digest);
-\code{finalize} costs $332$ gas more (one \code{keccak256} over 64 bytes plus
-the extra calldata word for the cross-check) --- both consistent with the
-single-word binding storage of \S\ref{sec:oracle} rather than a fresh storage
-slot. The complete settlement transaction costs $353{,}315$ gas. An
+\code{finalize} costs $79$ gas more. The \code{finalize} figure moves by a few
+hundred gas from one proof to the next, because a Groth16 proof's calldata
+bytes are priced differently depending on whether they are zero or non-zero,
+so small deltas on that row sit within proof-to-proof variation and should not
+be read as separately attributable to the cross-check. Both deltas are
+consistent with the single-word binding storage of \S\ref{sec:oracle} rather
+than a fresh storage slot. Three \code{finalize} figures appear in this
+section and they move along two axes: $352{,}983$ is the v2 receipt struct
+under the pre-ceremony key, $353{,}315$ is the current v3 struct under the same
+pre-ceremony key (the $79$-gas struct delta), and $353{,}062$ is the v3 struct
+with the post-ceremony verifier of Assumption~(S1) --- the complete settlement
+transaction as deployed; the last two differ by proof-dependent calldata
+pricing only. An
 \emph{isolated} call to the verifier contract with the same proof and public
-signals costs $243{,}194$ gas --- including its own $21{,}000$ base
+signals costs $243{,}182$ gas --- including its own $21{,}000$ base
 transaction cost and its own proof calldata, neither of which recurs when the
 verifier is instead called \emph{internally} from \code{finalize}, so
-$243{,}194$ is an upper bound on the verifier's share of the $353{,}315$, not a
+$243{,}182$ is an upper bound on the verifier's share of the $353{,}062$, not a
 component that subtracts cleanly to give the remainder. With that caveat, the
 bulk of the complete transaction's cost is still the Groth16 verification; the
 rest is the oracle cross-check (the receipt must be attested \emph{and} carry
@@ -1617,8 +1918,13 @@ Two changes make the analysis meaningful: declare the derived public signals as
 \code{signal output} so the target set is non-empty, and run the analysis on the
 \emph{unoptimized} (\code{--O0}) constraint system, since the \code{--O2}
 optimizer folds the linear structure that Ecne's symbolic solver relies on. The
-circuit is otherwise identical --- same source, same $1{,}251$ constraints at
-\code{--O2}. Under this methodology we obtain genuine, non-vacuous results:
+analysed circuits are separate source files, \code{settlement\_verify\_v2\_out.circom}
+and \code{kyc\_inclusion\_verify\_out.circom}, that keep the constraint
+semantics of the originals but declare the derived signals as outputs
+(\code{<==} in place of \code{===}) and drop the \code{public} list; the
+\code{\_out} variant of the primary circuit compiles to the same $1{,}251$
+constraints at \code{--O2}. Under this methodology we obtain genuine,
+non-vacuous results:
 
 \begin{center}
 \small
@@ -1626,9 +1932,9 @@ circuit is otherwise identical --- same source, same $1{,}251$ constraints at
 \toprule
 \textbf{Circuit} & \textbf{Outputs} & \textbf{Targets} & \textbf{Signals} & \textbf{Verdict} \\
 \midrule
-\code{settlement\_verify\_v2} (\code{--O0}) & declared & $5/5$ & $4{,}229/4{,}229$ & sound, no trusted fns \\
-\code{kyc\_inclusion\_verify} (\code{--O0}) & declared & $1/1$ & $18{,}230/18{,}248$ & sound, no trusted fns \\
-\code{settlement\_verify\_v2} (\code{--O2}) & declared & $4/5$ & $1{,}016/1{,}260$ & \emph{inconclusive} \\
+\code{settlement\_verify\_v2\_out} (\code{--O0}) & declared & $5/5$ & $4{,}229/4{,}229$ & sound, no trusted fns \\
+\code{kyc\_inclusion\_verify\_out} (\code{--O0}) & declared & $1/1$ & $18{,}230/18{,}248$ & sound, no trusted fns \\
+\code{settlement\_verify\_v2\_out} (\code{--O2}) & declared & $4/5$ & $1{,}016/1{,}260$ & \emph{inconclusive} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1710,9 +2016,12 @@ succeeds once the deadline passes (moving it to \code{Expired}), and a
 genuinely valid proof submitted to \code{finalize} afterward reverts, on-chain
 --- \code{cancel} and \code{finalize} are exercised as the mutually exclusive
 pair \S\ref{sec:oracle} states them to be, not just asserted to be so. All
-nine cases were submitted with explicit gas so that they would be recorded on
-the chain rather than stopped by client-side simulation, leaving a hash a
-reader can look up.
+nine cases were re-submitted after the ceremony, against the post-ceremony
+artifacts, with explicit gas so that they would be recorded on the chain rather
+than stopped by client-side simulation, leaving a hash a reader can look up;
+the four acceptance-rule cases (non-attestor signer, \code{settled = false},
+expired receipt, replayed tag) were sent to the happy-path oracle itself, so
+the replayed tag is the one that settled the reference operation.
 
 Contract addresses, every transaction hash, the public signals of the settled
 operation, and the exact commands that reproduce each number in this section
@@ -1723,9 +2032,9 @@ this section are claims about that exact commit.
 
 A reading note for those transactions: in the reference deployment the deployer,
 the registered attestor and the registry owner are the same key
-($\mathtt{0x7c20}\ldots\mathtt{a49}$) --- a prototype convenience, not a design
+($\mathtt{0xbE3c}\ldots\mathtt{eE60}$) --- a prototype convenience, not a design
 property. The negative cases must be read accordingly: the non-attestor case is
-signed by a second key, $\mathtt{0x19E7}\ldots\mathtt{ff2A}$, and a production
+signed by a second, throwaway key generated by the script, and a production
 deployment separates the three roles (multisig owner, \S\ref{sec:security}).
 
 \section{Related Work}
@@ -1829,6 +2138,11 @@ coarse --- it does not let a counterparty contest a still-live operation
 before the deadline, or distinguish ``PSP is slow'' from ``PSP is refusing''.
 A richer off-chain dispute path (e.g. an appeals window an aggrieved party can
 trigger before the deadline) is future work on top of the timeout primitive.
+\item \textbf{Domain-wide spent-tag registry}: \code{tagUsed} and the oracle's
+attestation record are per deployed instance, so Theorem~\ref{thm:uniqueness}
+is instance-scoped; a registry of spent $\nu$ indexed by $K$, consulted by
+every $\mathsf{Settle}$ instance of a domain, would make it domain-scoped at
+the cost of one shared storage write per settlement.
 \item \textbf{Attestor privacy}: hiding \emph{which} PSP attested, via a ring or
 threshold signature over the registered attestor set.
 \item \textbf{Atomic DvP, and a real composition with a confidential-asset
