@@ -10,6 +10,7 @@ look up.
 |---|---|
 | circom | 2.2.3 |
 | snarkjs | 0.7.6 |
+| circomlibjs (input generator) | 0.1.7 |
 | solc | 0.8.27 (evm target cancun, optimizer on, runs 200) |
 | Julia (for Ecne) | 1.7.2 |
 | Ecne | `github.com/franklynwang/EcneProject` @ `2593535` |
@@ -133,8 +134,8 @@ deployment above keeps the 72 h window.
 
 | Step | Transaction | Gas |
 |---|---|---|
-| `finalize` (happy path, short-window instance) | `0x91de456a05b24d8343915f0d3e259e7b309ff22d31e2fb539e955ee45cf0932c` | — |
-| `attestReversal` within the window | `0xc09942eccd60cddf24839c96464224af23129571b3cedd5ce9eab0871f5d5643` | — |
+| `finalize` (happy path, short-window instance) | `0x91de456a05b24d8343915f0d3e259e7b309ff22d31e2fb539e955ee45cf0932c` | 353,062 |
+| `attestReversal` within the window | `0xc09942eccd60cddf24839c96464224af23129571b3cedd5ce9eab0871f5d5643` | 63,529 |
 | `isReleasable` after reversal | `false` (confirmed) | — |
 | Control: 660 s after the reversal, `isIrrevocable(tag)` is still `false` — reversal blocks release **permanently**, not just until the window closes | confirmed (re-confirmed 2026-09-22 on the post-ceremony re-run) | — |
 
@@ -147,9 +148,9 @@ that this evidence didn't require repeating case 7's 660 s real wait.
 
 | Step | Transaction | Result | Gas |
 |---|---|---|---|
-| `lock(c0, deadline=+60s)` | `0x1818bdb0b93849b822eabd7b5f126d50e6b43365eacebfe7bbeb189e7d65f273` | succeeded | — |
+| `lock(c0, deadline=+60s)` | `0x1818bdb0b93849b822eabd7b5f126d50e6b43365eacebfe7bbeb189e7d65f273` | succeeded | 74,982 |
 | `cancel(c0)` before the `lock` deadline | `0x91763209061c6934bc44346001b0c2f24ac20121fff0d75d396e59b265fb5c5e` | reverted (`"prazo ainda nao expirou"`) | 26,202 |
-| `cancel(c0)` after the `lock` deadline (60 s, real wait) | `0x82af79c0e339fb372f90dc55814cd2ba1f066690d450cbb3395705192c875df6` | succeeded, `state -> Expired` | — |
+| `cancel(c0)` after the `lock` deadline (60 s, real wait) | `0x82af79c0e339fb372f90dc55814cd2ba1f066690d450cbb3395705192c875df6` | succeeded, `state -> Expired` | 30,259 |
 | `isExpired(c0)` after `cancel` | `true` (confirmed) | — | — |
 | `finalize(proof)` with a genuinely valid proof, submitted after `cancel` | `0x853bdd1a2d2deabbf7f03e648d8674ce756219da99b05bad99d53ecc3bb5c323` | reverted (`"operacao nao travada"`) | 52,209 |
 
@@ -172,7 +173,13 @@ Reproduce with:
 ```bash
 node node_modules/hardhat/dist/src/cli.js run scripts/deploy-settlement-v2.ts --network xdcTestnet
 node node_modules/hardhat/dist/src/cli.js run scripts/apothem-negative-cases-v3.ts --network xdcTestnet
+# cases 1-4, against the oracle printed by the deploy above (your key is its attestor):
+ORACLE_ADDRESS=<oracle> node node_modules/hardhat/dist/src/cli.js run scripts/apothem-negative-cases-acceptance-v3.ts --network xdcTestnet
 ```
+
+Case 1 signs its forged receipt with the fixed, publicly known throwaway key
+`0x1111…1111` (it only needs to be a key that is not a registered attestor);
+the transaction itself is sent and paid by your key.
 
 ## §9.1 — Circuit sizes
 
@@ -194,20 +201,49 @@ none of the figures is misread as three measurements of one circuit.
 
 ## §9.2 — Proving and verification
 
+Check the shipped artifacts without re-running the ceremony (tested on
+2026-09-29 in a clean clone after `npm ci`, with circom 2.2.3; `W` is a scratch
+directory, so nothing under `build/` is overwritten):
+
 ```bash
 OUT=build/circuits/settlement_verify_v2
-circom circuits/settlement_verify_v2.circom --r1cs --wasm --sym --O2 -o $OUT -l node_modules
-node scripts/gen-settlement-v2-input.cjs $OUT/input.json
-node $OUT_js/generate_witness.cjs $OUT/settlement_verify_v2.wasm $OUT/input.json $OUT/witness.wtns
-# phase-2 ceremony (scripts/ceremony/ceremony.sh wraps these three steps):
-snarkjs groth16 setup $OUT/settlement_verify_v2.r1cs circuits/powersOfTau28_hez_final_15.ptau $OUT/sv2_0000.zkey
-snarkjs zkey contribute $OUT/sv2_0000.zkey $OUT/sv2_0001.zkey --name="<contributor>" -e="<local entropy, then discarded>"
-snarkjs zkey beacon $OUT/sv2_0001.zkey $OUT/settlement_verify_v2.zkey <beaconHex> 10 --name="beacon-final"
-snarkjs zkey verify $OUT/settlement_verify_v2.r1cs circuits/powersOfTau28_hez_final_15.ptau $OUT/settlement_verify_v2.zkey   # -> ZKey Ok!
-snarkjs zkey export verificationkey $OUT/settlement_verify_v2.zkey $OUT/settlement_verify_v2.vkey.json
-snarkjs groth16 prove $OUT/settlement_verify_v2.zkey $OUT/witness.wtns $OUT/proof.json $OUT/public.json
-snarkjs groth16 verify $OUT/vkey.json $OUT/public.json $OUT/proof.json     # -> OK!
-snarkjs zkey export solidityverifier $OUT/settlement_verify_v2.zkey contracts/SettlementVerifierV2.sol
+PTAU=circuits/powersOfTau28_hez_final_15.ptau
+W=$(mktemp -d)
+circom circuits/settlement_verify_v2.circom --r1cs --wasm --sym --O2 -o $W -l node_modules
+cmp $W/settlement_verify_v2.r1cs $OUT/settlement_verify_v2.r1cs && echo "r1cs identical"
+npx snarkjs zkey verify $OUT/settlement_verify_v2.r1cs $PTAU $OUT/settlement_verify_v2.zkey     # -> ZKey Ok!
+node scripts/gen-settlement-v2-input.cjs $W/input.json                                          # same as $OUT/input.json
+npx snarkjs wtns calculate $W/settlement_verify_v2_js/settlement_verify_v2.wasm $W/input.json $W/witness.wtns
+npx snarkjs groth16 prove $OUT/settlement_verify_v2.zkey $W/witness.wtns $W/proof.json $W/public.json
+npx snarkjs groth16 verify $OUT/settlement_verify_v2.vkey.json $W/public.json $W/proof.json     # -> OK!
+npx snarkjs zkey export solidityverifier $OUT/settlement_verify_v2.zkey $W/Verifier.sol
+diff $W/Verifier.sol contracts/SettlementVerifierV2.sol    # only the contract name differs
+```
+
+`$W/public.json` equals the shipped `public.json` (the signals are
+deterministic in `input.json`); the proof itself differs, as Groth16 proofs are
+randomized.
+
+How the ceremony was run (`scripts/ceremony/ceremony.sh` wraps these steps and
+reads the snarkjs command from `SNARKJS`, e.g. `SNARKJS="npx snarkjs"`). A new
+run produces a different `.zkey`, because the entropy is fresh; the shipped one
+is the one transcribed below:
+
+```bash
+npx snarkjs groth16 setup $OUT/settlement_verify_v2.r1cs $PTAU $W/sv2_0000.zkey
+npx snarkjs zkey contribute $W/sv2_0000.zkey $W/sv2_0001.zkey --name="<contributor>" -e="<local entropy, then discarded>"
+npx snarkjs zkey beacon $W/sv2_0001.zkey $W/sv2_final.zkey <beaconHex> 10 --name="beacon-final"
+```
+
+`circuits/powersOfTau28_hez_final_15.ptau` is the Hermez powers-of-tau file
+for circuits of up to 2^15 constraints. It is shipped in this repository
+because both published download locations
+(`storage.googleapis.com/zkevm/ptau/…` and the legacy
+`hermez.s3-eu-west-1.amazonaws.com/…`) returned HTTP 403 on 2026-09-29.
+Check it against the blake2b hash published in the snarkjs README:
+
+```
+982372c867d229c236091f767e703253249a9b432c1710b4f326306bfa2428a17b06240359606cfe4d580b10a5a1f63fbed499527069c18ae17060472969ae6e
 ```
 
 The reference `SettlementVerifierV2.sol` in this repository was generated from
@@ -307,13 +343,11 @@ file (open item, listed as future work rather than asserted).
 ## Test suites
 
 ```bash
-node node_modules/hardhat/dist/src/cli.js test tests/SettlementV2.test.ts                    #  9 tests (lock/cancel/Expired, achado H1)
-node node_modules/hardhat/dist/src/cli.js test tests/SettlementAttestationOracle.test.ts      # 11 tests
-node node_modules/hardhat/dist/src/cli.js test tests/SettlementVerifierV2.gas.test.ts         #  1 test
-node node_modules/hardhat/dist/src/cli.js test tests/AuditChannelGovernance.test.ts tests/ContratoSocialArvore.test.ts tests/ContratoSocialAttestor.test.ts tests/ContratoSocialExtrair.test.ts tests/FinanciamentoFlow.test.ts tests/StateMachineGovernance.test.ts   # suite completa do repositorio
+npx hardhat test tests/SettlementV2.test.ts tests/SettlementAttestationOracle.test.ts tests/SettlementVerifierV2.gas.test.ts
 ```
 
-All 63 tests pass (0 failures). `tests/SettlementAttestationOracle.test.ts`
+21 tests pass (9 + 11 + 1, 0 failures; run on 2026-09-29 in a clean clone
+after `npm ci`). `tests/SettlementAttestationOracle.test.ts`
 includes a test that checks neither the settled amount **nor** the
 counterparty's cleartext identifier appears in `attest`'s calldata.
 `tests/SettlementV2.test.ts` is new in this revision: it covers `lock`
@@ -322,19 +356,24 @@ mutual exclusion with a second `cancel`), and the `isExpired`/`isReleasable`
 view predicates — all locally, with the real on-chain evidence for the
 `cancel`/`finalize` mutual-exclusion property given by case 8 above.
 
-## Pendências (não bloqueiam, mas não estão fechadas)
+## Open items (not blocking)
 
-- **Gas por sinal** (delta entre o verifier de 2 sinais e o de 5 sinais):
-  re-medir ambos a partir do mesmo codegen `snarkjs 0.7.6`, mesmo template.
-- **Dispersão de tempo de prova**: re-rodar `scripts/bench-prove.cjs` no
-  hardware declarado (i5-1135G7, containerizado) — a tentativa nesta sessão,
-  numa máquina não controlada, teve ruído grande demais para publicar.
-- **18 sinais do KYC**: cruzar com o `.sym` pra identificar o que são.
+- **Gas per public signal** (the delta between the two-signal and the
+  five-signal verifier): re-measure both from the same snarkjs 0.7.6 codegen
+  and template.
+- **Proving-time dispersion:** re-run `scripts/bench-prove.cjs` on the stated
+  hardware (i5-1135G7, containerized); the attempt on an uncontrolled machine
+  was too noisy to publish.
+- **The 18 undetermined signals of the KYC circuit:** identify them against
+  its `.sym` file.
 
-## Repositório de referência público
+## Provenance
 
-Snapshot curado (não o histórico completo do monorepo interno — ver a nota
-de proveniência no README daquele repositório):
+This repository is a curated snapshot of the settlement and attestation work
+of a larger internal repository, published for the manuscript's
+reproducibility requirement. The manuscript cites a specific commit of this
+repository, and its reproducibility claims refer to that commit.
 
-`https://github.com/harpo-zk/proof-of-instant-settlement`, commit
-`d38feb77919c89c3697d7bc59c9d88aba0746a68`.
+Gas figures for the reversal and liveness paths above were read back from the
+transaction receipts on 2026-09-29 (`eth_getTransactionReceipt`, chainId 51);
+all 17 transaction hashes in this manifest resolve, with the statuses shown.

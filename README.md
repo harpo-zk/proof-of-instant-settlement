@@ -24,19 +24,28 @@ contract addresses, transaction hashes and exact commands is
   `sanctions_exclusion_verify`, `kyc_inclusion_verify`), and the keyed/unkeyed
   nullifier ablation pair (`pix_nullifier_verify`, `pix_payment_verify`).
 - `scripts/` — deployment and on-chain reproduction scripts for the XDC
-  Apothem public testnet (chainId 51).
+  Apothem public testnet (chainId 51), the input generator, and
+  `scripts/ceremony/ceremony.sh`, the phase-2 setup ceremony tooling.
 - `tests/` — local Hardhat test suite (`node:test`).
-- `build/` — circuit build artifacts (r1cs, wasm, zkey, a real proof/public
-  signals pair) and saved logs from the real Apothem runs, referenced by
-  `docs/eprint/ARTIFACTS.md`.
+- `build/` — circuit build artifacts (r1cs, wasm, zkey, verification key, a
+  real proof/public signals pair) and saved logs from the real Apothem runs,
+  referenced by `docs/eprint/ARTIFACTS.md`.
+- `circuits/powersOfTau28_hez_final_15.ptau` — the Hermez powers of tau used
+  by the setup (its official download locations are no longer public; the
+  blake2b to check it against is in `docs/eprint/ARTIFACTS.md`).
 
 ## Reproducing
 
 ```bash
-npm install
+npm ci
 npx hardhat compile
-npx hardhat test tests/SettlementV2.test.ts tests/SettlementAttestationOracle.test.ts tests/SettlementVerifierV2.gas.test.ts
+npx hardhat test tests/SettlementV2.test.ts tests/SettlementAttestationOracle.test.ts tests/SettlementVerifierV2.gas.test.ts   # 21 tests
 ```
+
+To check the Groth16 artifacts without any network access (the circuit
+recompiles to the shipped R1CS, the `.zkey` verifies against the shipped
+ptau, and a fresh proof verifies against the shipped verification key), follow
+§9.2 of `docs/eprint/ARTIFACTS.md`; it needs circom 2.2.3 on the `PATH`.
 
 To reproduce the on-chain evidence against a fresh deployment on XDC Apothem,
 copy `.env.example` to `.env`, set `XDC_PRIVATE_KEY` to a funded Apothem
@@ -45,6 +54,7 @@ testnet key, then:
 ```bash
 npx hardhat run scripts/deploy-settlement-v2.ts --network xdcTestnet
 npx hardhat run scripts/apothem-negative-cases-v3.ts --network xdcTestnet
+ORACLE_ADDRESS=<oracle printed by the deploy> npx hardhat run scripts/apothem-negative-cases-acceptance-v3.ts --network xdcTestnet
 npx hardhat run scripts/apothem-liveness-case8.ts --network xdcTestnet
 ```
 
