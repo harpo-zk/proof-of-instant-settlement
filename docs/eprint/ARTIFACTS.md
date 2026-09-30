@@ -40,7 +40,7 @@ deployments.
 |---|---|
 | `SettlementVerifierV2` (Groth16, 5 public signals; post-ceremony key) | `0x8bc6c51d8c3430c49a0accf323f99ab66bcda72d` |
 | `SettlementAttestationOracle` (EIP-712 version `"3"`, receipt carries `partyCommitment`, 72 h dispute window) | `0x9b44cfd2150e65292e462a964b7b4fda0dd8f41a` |
-| `SettlementV2` (cross-checks `c0` **and** `partyCommitment` via `bindingOf`; `lock`/`cancel` liveness timeout, achado H1) | `0x51a7359db8a021f788beafbd55678e4fce18d304` |
+| `SettlementV2` (cross-checks `c0` **and** `partyCommitment` via `bindingOf`; `lock`/`cancel` liveness timeout) | `0x51a7359db8a021f788beafbd55678e4fce18d304` |
 
 ### Public signals of the settled operation
 
@@ -118,7 +118,7 @@ re-attest a tag). Run log: `build/apothem-negative-cases-v3-51.txt`.
 | `settled = false` | `0xbfbbcec38895cd96cca845f09efff3f3a1760b6534ddeb010a2b5f33fed46cd4` | reverted | 28,435 |
 | Expired receipt (`deadline` in the past) | `0x16543606cb2ef5558d25fadc7a122f273289f336d8ca7701f2353a5eedcc9642` | reverted | 28,679 |
 | Replay of the tag attested in the happy path | `0x6f00ce0b3eac5ac73038955e609fae1352fbb21e42ffc5e670e1e6812e2e7db6` | reverted | 36,468 |
-| **5a — receipt's `c0` diverges from the one the proof opens** (value-consistency mechanism, §3.1) | `0x8340874357a1178d1fe5eba683bd2ea3c563546b4c8e66a46fa0809789d48df8` | reverted | 65,057 |
+| **5a — receipt's `c0` diverges from the one the proof opens** (value-consistency mechanism, §4.1) | `0x8340874357a1178d1fe5eba683bd2ea3c563546b4c8e66a46fa0809789d48df8` | reverted | 65,057 |
 | **5b — receipt's `partyCommitment` diverges from the one the proof opens** | `0x85adc5e14a4380ce042bd48516bbf316b92016a072d63d34baca7b24e1b82173` | reverted | 65,057 |
 | **6 — proof's domain anchor `K` diverges from the registered one** | `0xc856f56842702f8c9445bfb479de3ca75de3189d86d32396021dac38c1e2e34c` | reverted | 54,455 |
 
@@ -139,7 +139,7 @@ deployment above keeps the 72 h window.
 | `isReleasable` after reversal | `false` (confirmed) | — |
 | Control: 660 s after the reversal, `isIrrevocable(tag)` is still `false` — reversal blocks release **permanently**, not just until the window closes | confirmed (re-confirmed 2026-09-22 on the post-ceremony re-run) | — |
 
-### Liveness timeout path (case 8 — achado H1, new in this revision)
+### Liveness timeout path (case 8)
 
 Isolated deployment (`scripts/apothem-liveness-case8.ts`), same main proof, so
 that this evidence didn't require repeating case 7's 660 s real wait.
@@ -252,7 +252,7 @@ ceremony); its verification key is therefore specific to this artifact set, not
 portable to a setup run elsewhere, even for the bit-identical circuit. A
 `groth16 setup` followed directly by `export solidityverifier`, with no
 `contribute`/`beacon`, is exactly what produced the superseded δ = generator
-artifact (RT-20) — do not reproduce the verifier that way.
+artifact; do not reproduce the verifier that way.
 
 ### Ceremony transcript (2026-09-22)
 
@@ -350,7 +350,7 @@ npx hardhat test tests/SettlementV2.test.ts tests/SettlementAttestationOracle.te
 after `npm ci`). `tests/SettlementAttestationOracle.test.ts`
 includes a test that checks neither the settled amount **nor** the
 counterparty's cleartext identifier appears in `attest`'s calldata.
-`tests/SettlementV2.test.ts` is new in this revision: it covers `lock`
+`tests/SettlementV2.test.ts` covers `lock`
 (deadline validation, double-lock rejection), `cancel` (before/after deadline,
 mutual exclusion with a second `cancel`), and the `isExpired`/`isReleasable`
 view predicates — all locally, with the real on-chain evidence for the
