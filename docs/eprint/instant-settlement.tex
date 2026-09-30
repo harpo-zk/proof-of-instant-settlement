@@ -638,7 +638,11 @@ gate the irreversible release of the asset on \code{isIrrevocable}, not on
 \code{isAttested}, and price the residual rail-level risk separately. Revoking an
 attestor blocks \emph{new} attestations and does not invalidate past ones;
 retroactive invalidation would give the registry owner the power to undo
-completed settlements.
+completed settlements. Revocation also leaves the revoked key able to sign
+reversals of its own attestations within the dispute window, because
+\code{attestReversal} checks only that the signer is the original attestor. A
+compromised key can therefore still block the release of the operations it
+attested in that window (\S\ref{sec:security}).
 
 The state machine admits one orthogonal upgrade: a \code{RailAnchored} flag,
 settable at any time by a verified rail-level statement (\S\ref{sec:security},
@@ -1272,10 +1276,13 @@ constrain a \emph{malicious registered} PSP, which is the residual Trusted-PSP
 assumption.
 \end{proof}
 
-Soundness (Properties~\ref{prop:binding}--\ref{prop:settlementbinding}
-and~\ref{prop:auth}) holds only under (A1)'s trusted-setup premise, which
-the reference artifacts meet only through a single-contributor ceremony
-(Assumption~(S1) of \S\ref{sec:security}). We now enumerate adversaries informally,
+The proof-based properties (Properties~\ref{prop:twophase},
+\ref{prop:settlementbinding} and~\ref{prop:uniqueness}) hold only under (A1)'s
+trusted-setup premise, which the reference artifacts meet only through a
+single-contributor ceremony (Assumption~(S1) of \S\ref{sec:security}).
+Commitment binding (Property~\ref{prop:binding}) rests on (A2) alone, and
+attestation unforgeability (Property~\ref{prop:auth}) on (A3) alone. We now
+enumerate adversaries informally,
 including those outside the formal statements above.
 
 \section{Security Analysis and Threat Model}
@@ -1380,7 +1387,9 @@ PSP key compromised
 & \textbf{Partially mitigated}: receipts carry a \code{deadline}, bounding the
 window of abuse if the PSP signs short deadlines (the contract imposes no cap),
 and the attestor can be revoked for future attestations. A compromised key
-remains able to attest within the window. \\[2pt]
+remains able to attest within the window and, even after revocation, to sign
+reversals of its own attestations within the dispute window, which blocks the
+release of those operations (\S\ref{sec:reversal}). \\[2pt]
 Front-running \code{lock} on a known $c_0$, or locking it with a hostile deadline
 & \textbf{Not mitigated in the contract}: \code{lock} is permissionless and
 first-writer-wins (\code{state == None}), so anyone who learns $c_0$ before the
@@ -1462,7 +1471,9 @@ things:
 \endlastfoot
 PSP attestor signing key & Forge attestations within the receipt's
 \code{deadline}, for any $c_0$/$\mathsf{pc}$ the attacker chooses; revocable
-for future attestations (\S\ref{sec:oracle}). \\
+for future attestations (\S\ref{sec:oracle}). Within the dispute window,
+also reverse the key's own past attestations, even after revocation, which
+blocks their release (\S\ref{sec:reversal}). \\
 Domain key $k$ & Deanonymize every $\nu$ ever accepted in the domain back to
 its \eeid{}, which the holders of $k$ (the PSP and the proving institutions)
 already can, by design (``$\nu$ is a selective-linkability primitive'',
@@ -1476,10 +1487,12 @@ domain. \\
 \code{salt} (settlement-phase blinding) & Same degradation, for $c$ instead
 of $c_0$; also operation-scoped. \\
 Groth16 toxic waste (trusted setup) & Forge \emph{proofs} for false
-statements, defeating soundness (Properties~\ref{prop:binding},
-\ref{prop:twophase}, \ref{prop:settlementbinding}
-and~\ref{prop:uniqueness}) entirely; this is the most severe compromise on this
-list (Assumption~(S1)). \\
+statements, which invalidates the reductions behind
+Properties~\ref{prop:twophase}, \ref{prop:settlementbinding}
+and~\ref{prop:uniqueness}; this is the most severe compromise on this list
+(Assumption~(S1)). Commitment binding (Property~\ref{prop:binding}) and
+attestation unforgeability (Property~\ref{prop:auth}) do not depend on the
+setup. \\
 Registry owner key (policy admin) & Add a hostile attestor or rewrite policy
 roots; change \code{disputeWindow}, which \code{isIrrevocable} reads live, and
 thereby alter the finality of tags already attested; mitigated only by a
@@ -1733,11 +1746,10 @@ circuits: the ablation circuit ($510$ constraints) timing \emph{above} the
 $537$-constraint circuit cannot be distinguished from noise without a
 dispersion figure, which we do not have on the stated hardware. A dispersion
 measurement (median $\pm$ SD over $N=30$ warm-up-then-timed runs, via
-\code{scripts/bench-prove.cjs}) on a separate, uncontrolled machine gave prove
-$594.8\,\text{ms}\pm86.6$ and verify $31.0\,\text{ms}\pm10.6$. Both figures are
-several times the single-run numbers below, which points to the uncontrolled
-machine rather than to the in-process/CLI distinction, so we do not substitute
-them into the table. A same-hardware re-run ($N\geq30$, median $\pm$ SD) on the
+\code{scripts/bench-prove.cjs}) on a separate, uncontrolled machine produced
+figures several times the single-run numbers below, which points to the
+uncontrolled machine rather than to the in-process/CLI distinction, so we do
+not report them. A same-hardware re-run ($N\geq30$, median $\pm$ SD) on the
 stated i5-1135G7 is future work (\S\ref{sec:futurework}).
 
 \begin{center}
