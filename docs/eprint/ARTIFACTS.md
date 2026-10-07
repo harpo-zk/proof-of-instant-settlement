@@ -1,8 +1,38 @@
-# Artifact manifest — Proof-of-Instant-Settlement
+# Artifact manifest — Cryptographic Settlement Binding for Confidential On-Chain State
 
-Every number in §9 of the manuscript is reproducible from this repository with
-the commands below, and every on-chain claim points at a transaction a reader can
-look up.
+Every number in the manuscript's "Implementation and Evaluation" section is
+reproducible from this repository with the commands below, and every on-chain
+claim points at a transaction a reader can look up.
+
+## Paper snapshot vs. current repository state
+
+This manifest documents the artifacts cited by **V3** of the manuscript,
+*Cryptographic Settlement Binding for Confidential On-Chain State*
+(`docs/eprint/instant-settlement-v3.tex`/`.pdf`), which supersedes the
+pre-V3 draft previously shipped from this repository under the working
+title *Proof-of-Instant-Settlement*.
+
+- **Artifacts are unchanged.** `git diff --stat 0db97bf..HEAD` shows zero
+  changes to `contracts/`, `circuits/`, `build/`, `scripts/` or `tests/`
+  between the commit the manuscript cites and the current repository state —
+  only the paper, `README.md` and this manifest were revised. Every
+  constraint count, gas figure and deployed address below is still exactly
+  what commit `0db97bf91ddc5be475e3d4175a62e241eb80df79` produced.
+- **The proving/verification timing table below (§"Proving and
+  verification") is not cited by V3.** The manuscript's own "Benchmark
+  methodology" limitation states that an earlier single-warm-run timing
+  pass was excluded because it is not a statistically meaningful benchmark
+  (a proper $N\geq30$ run is left as future work). The table is kept here
+  as repository-level historical evidence, not as a number the current
+  manuscript reports.
+- **The `cancel`/`attestReversal` gas figures are not in V3's on-chain-cost
+  table**, for the same reason the manuscript gives: a local-network
+  reproduction (28,115 / 57,541 gas, re-confirmed in this sync at ~57,553)
+  does not exactly match the Apothem-recorded figures below (30,259 /
+  63,529), and the discrepancy has not been attributed to a specific cause.
+  The reversal and liveness-timeout path tables below remain valid
+  repository-level reproducibility evidence; they are just not asserted as
+  manuscript numbers.
 
 ## Toolchain
 
@@ -16,11 +46,25 @@ look up.
 | Ecne | `github.com/franklynwang/EcneProject` @ `2593535` |
 | CPU (all timings) | 11th Gen Intel Core i5-1135G7, containerized |
 
+**Toolchain reproducibility note.** The manuscript (§8.1) reports Circom
+2.2.1 and snarkjs 0.7.5, the versions used to produce the artifacts cited in
+the V3 submission. The repository was subsequently updated to newer
+patch-level toolchain releases (Circom 2.2.3, snarkjs 0.7.6, as pinned
+above and in `package-lock.json`). The current repository toolchain
+reproduces the reported 1,251-constraint circuit, the 5/8 public/private
+signal counts, and the 353,062-gas `finalize` measurement — these specific,
+named figures were independently re-checked under Circom 2.2.3 / snarkjs
+0.7.6 and found unchanged. This is a targeted reproduction of those figures,
+not a claim that every result in the manuscript was re-derived under the
+newer toolchain, and it is a patch-level toolchain update, not a downgrade
+or a re-derivation of the construction; no circuit, contract or proving
+artifact was regenerated or modified in this documentation-only sync.
+
 ## Deployment — XDC Apothem, chainId 51
 
 Deployer / attestor / registry owner: `0xbE3cc4c4eF02F6851440823E5DeCB62f8Df0eE60`
-(same key for all three roles in this prototype — see the reading note in §9.4 of
-the manuscript).
+(same key for all three roles in this prototype — see the reading note in
+§8.4, "End-to-end deployment", of the manuscript).
 
 **Post-ceremony deployment (2026-09-22).** The verifier below was regenerated
 after a phase-2 setup ceremony for `settlement_verify_v2` (one participant
@@ -72,7 +116,7 @@ artifact measured 353,315 for the same operation; the difference is
 proof-dependent calldata pricing, not a logic change). An isolated call to the
 verifier alone costs 243,182 gas (`eth_estimateGas` of `verifyProof` with the
 same proof and public signals against `0x8bc6c51d…`, no transaction retained;
-see §9.2 below for why this is an upper bound on its share of the complete
+see "Proving and verification" below for why this is an upper bound on its share of the complete
 call, not a subtractable component); the remainder
 of the complete call is the oracle cross-check (`isAttested`,
 `bindingOf(tag) == keccak256(c0, partyCommitment)`), the domain-anchor check,
@@ -181,7 +225,7 @@ Case 1 signs its forged receipt with the fixed, publicly known throwaway key
 `0x1111…1111` (it only needs to be a key that is not a registered attestor);
 the transaction itself is sent and paid by your key.
 
-## §9.1 — Circuit sizes
+## Circuit sizes (manuscript §8.1, "Reference implementation")
 
 ```bash
 circom circuits/settlement_verify_v2.circom --r1cs --O2 -o /tmp/c -l node_modules
@@ -199,7 +243,7 @@ circom circuits/pix_payment_verify.circom   --r1cs --O2 -o /tmp/c -l node_module
 These are three distinct circuits, kept distinct in this table specifically so
 none of the figures is misread as three measurements of one circuit.
 
-## §9.2 — Proving and verification
+## Proving and verification (repository-level artifact detail — not cited by V3; see "Paper snapshot vs. current repository state" above)
 
 Check the shipped artifacts without re-running the ceremony (tested on
 2026-09-29 in a clean clone after `npm ci`, with circom 2.2.3; `W` is a scratch
@@ -281,7 +325,8 @@ The beacon value is a fixed placeholder, not public verifiable randomness
 are two deployments of that same bytecode.
 
 Timings below are **single warm runs** on the stated hardware, not a median
-over repeated trials — see §9.2 of the manuscript for why, and for the one
+over repeated trials — see the manuscript's "Benchmark methodology" limitation
+for why this table is not cited in the current paper, and for the one
 `N=30` dispersion measurement we did run (on a separate, uncontrolled
 machine, not usable as a substitute for these figures). A same-hardware
 `N>=30` re-run is listed as future work, not reported here as if already done.
@@ -292,7 +337,7 @@ machine, not usable as a substitute for these figures). A same-hardware
 | `pix_nullifier_verify` | 110.5 ms | 14.0 ms |
 | `pix_payment_verify` (ablation) | 130.1 ms | 14.7 ms |
 
-## §9.3 — ZK-circuit constraint analysis (Ecne)
+## ZK-circuit constraint analysis — Ecne (manuscript §8.3 and Appendix "Ecne Constraint-Analysis Methodology")
 
 **Read this before citing the verification result.** The verdict Ecne prints is
 only meaningful when the circuit has public *outputs*: the tool compares how many
@@ -347,7 +392,8 @@ npx hardhat test tests/SettlementV2.test.ts tests/SettlementAttestationOracle.te
 ```
 
 21 tests pass (9 + 11 + 1, 0 failures; run on 2026-09-29 in a clean clone
-after `npm ci`). `tests/SettlementAttestationOracle.test.ts`
+after `npm ci`, and re-confirmed unchanged on 2026-10-07 as part of the V3
+documentation sync). `tests/SettlementAttestationOracle.test.ts`
 includes a test that checks neither the settled amount **nor** the
 counterparty's cleartext identifier appears in `attest`'s calldata.
 `tests/SettlementV2.test.ts` covers `lock`
@@ -356,6 +402,18 @@ mutual exclusion with a second `cancel`), and the `isExpired`/`isReleasable`
 view predicates — all locally, with the real on-chain evidence for the
 `cancel`/`finalize` mutual-exclusion property given by case 8 above.
 
+**Not covered by this suite — cross-instance replay (§8.4).** The manuscript
+reports a replay/cross-instance experiment: two independent `(oracle,
+Settle)` pairs, the same settlement tag (same \eeid/domain key), two
+different proofs/terms, the replay rejected within the originating context
+and accepted independently in the other instance, demonstrating that
+uniqueness is instance-scoped rather than global. The cross-instance replay
+experiment reported in §8.4 was executed in the authors' internal POC
+repository and is not currently reproduced by an automated test in this
+public repository. This is deliberate, not an oversight: the test is planned
+for a separate, follow-up pull request rather than being added, copied, or
+approximated as part of this documentation-only sync.
+
 ## Open items (not blocking)
 
 - **Gas per public signal** (the delta between the two-signal and the
@@ -363,16 +421,41 @@ view predicates — all locally, with the real on-chain evidence for the
   and template.
 - **Proving-time dispersion:** re-run `scripts/bench-prove.cjs` on the stated
   hardware (i5-1135G7, containerized); the attempt on an uncontrolled machine
-  was too noisy to publish.
+  was too noisy to publish. (Note: V3 no longer reports this figure in its
+  main text either — see "Proving and verification" above.)
 - **The 18 undetermined signals of the KYC circuit:** identify them against
   its `.sym` file.
+- **Port the cross-instance/tag-replay test** described in manuscript §8.4
+  into this repository's `tests/` directory (see "Not covered by this suite"
+  above).
 
 ## Provenance
 
 This repository is a curated snapshot of the settlement and attestation work
 of a larger internal repository, published for the manuscript's
-reproducibility requirement. The manuscript cites a specific commit of this
-repository, and its reproducibility claims refer to that commit.
+reproducibility requirement. The manuscript (§8.4) cites commit
+`0db97bf91ddc5be475e3d4175a62e241eb80df79`, and its reproducibility claims
+refer to that commit.
+
+Three commits were made to this repository after `0db97bf`, all documentation
+only (`74aa204`, `1389b55`, `b968db9` — revisions to a pre-V3 draft of the
+paper, the README and this manifest). None touched `contracts/`, `circuits/`,
+`build/`, `scripts/` or `tests/`. The commit that performs the V3
+documentation sync (this one) continues that pattern: it replaces the pre-V3
+paper with the actual submitted V3 manuscript and brings the README and this
+manifest in line with it, again without touching any artifact.
+
+Consequently, two commit references are both correct, for different claims:
+
+- **`0db97bf91ddc5be475e3d4175a62e241eb80df79`** — cite this for any
+  artifact-level reproducibility claim (R1CS, zkey, deployed addresses, gas
+  and constraint figures): it is the commit the manuscript names, and it is
+  bit-for-bit what `contracts/`, `circuits/` and `build/` still contain today.
+- **The current `main` HEAD** — cite this to find the actual V3 manuscript
+  text and the documentation that describes it; the pre-V3 draft that
+  `0db97bf` shipped alongside is retained in git history (`git show
+  0db97bf:docs/eprint/instant-settlement.tex`) but is no longer the paper
+  presented by this repository's working tree.
 
 Gas figures for the reversal and liveness paths above were read back from the
 transaction receipts on 2026-09-29 (`eth_getTransactionReceipt`, chainId 51);
