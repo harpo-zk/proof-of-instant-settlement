@@ -179,13 +179,15 @@ counterparty identifier appears in `attest()`); and Groth16 verification gas
 for a real proof.
 
 The 22nd, `tests/SettlementV2.finalize.test.ts`, reproduces the manuscript's
-§8.4 cross-instance replay claim with real proofs: it deploys two independent
-`(SettlementAttestationOracle, SettlementV2)` pairs, verifies that a second
-operation sharing the same settlement tag is rejected within the originating
-instance, and verifies that an independent instance that never saw the tag
-accepts it — settlement-tag uniqueness is enforced per deployment, not
-globally. See `docs/eprint/ARTIFACTS.md` for the full note, including the
-provenance of the second proof fixture it uses.
+§8.4 cross-instance replay claim. It uses the real Groth16 proof for the
+successful settlement and carries a second, independently generated proof
+fixture representing a distinct operation with the same settlement tag; that
+second operation is rejected at the oracle's attestation gate before proof
+verification is reached, while an independent deployment that never saw the
+tag accepts and finalizes the real proof's settlement on its own —
+settlement-tag uniqueness is enforced per deployment, not globally. See
+`docs/eprint/ARTIFACTS.md` for the full note, including the provenance of
+the second proof fixture.
 
 ## Experimental Results
 

@@ -407,17 +407,29 @@ view predicates — all locally, with the real on-chain evidence for the
 experiment reported in §8.4 is now covered by the automated regression test
 `tests/SettlementV2.finalize.test.ts` ("rejects replay within the same
 Oracle/Settlement instance ..., but allows the same tag in an independent
-instance"). The test deploys two independent `(SettlementAttestationOracle,
-SettlementV2)` pairs against the real `settlement_verify_v2` proof already
-shipped in `build/circuits/settlement_verify_v2/`, plus a second, genuinely
-distinct proof (`tests/fixtures/settlement_verify_v2_case9/`, carried over
-unmodified from the authors' internal POC repository — generated against the
-exact same circuit and zkey shipped here, so it verifies against this
-repository's `SettlementVerifierV2` without any artifact being regenerated).
-It verifies rejection of a second attestation for the same tag within the
-originating instance (`oracle: tag ja atestada`), and verifies that an
-independent instance — a fresh `(oracle, SettlementV2)` pair that never saw
-the tag — accepts the same tag. This establishes that settlement-tag
+instance"), which exercises two independent `(SettlementAttestationOracle,
+SettlementV2)` pairs:
+
+- **Instance A.** The real `settlement_verify_v2` proof already shipped in
+  `build/circuits/settlement_verify_v2/` is attested and finalized
+  successfully. A second, independently generated proof fixture
+  (`tests/fixtures/settlement_verify_v2_case9/`, carried over unmodified
+  from the authors' internal POC repository — generated against the exact
+  same circuit and zkey shipped here, so it is a valid proof for this
+  repository's `SettlementVerifierV2` without anything being regenerated)
+  represents a distinct operation carrying the **same settlement tag**.
+  Submitting its attestation is rejected at the oracle's gate
+  (`oracle: tag ja atestada`) — its Groth16 proof is never reached by
+  `finalize()`/`verifyProof()`, because the oracle rejects the second
+  attestation first.
+- **Instance B.** A fresh `(oracle, SettlementV2)` pair that never saw the
+  tag accepts and finalizes the real proof from Instance A on its own.
+
+Only one Groth16 proof is ever verified on-chain in this test — the real
+`settlement_verify_v2` proof, once in Instance A and once in Instance B. The
+second proof fixture is used solely for its public signals (the shared tag,
+and a distinct `c0`/`partyCommitment`), to reach the oracle's attestation
+gate; it is not submitted to a verifier. This establishes that settlement-tag
 uniqueness is enforced **within an individual Oracle/Settlement deployment
 context**; it does not establish, and the test does not claim, that the tag
 is unique across independent deployments — the opposite is demonstrated.

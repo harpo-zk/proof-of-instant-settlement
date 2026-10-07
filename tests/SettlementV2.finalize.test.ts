@@ -5,19 +5,23 @@ import { pad, toHex } from "viem";
 import fs from "node:fs";
 
 /**
- * Reproduces, with real Groth16 proofs, the §8.4 ("End-to-end deployment")
- * cross-instance replay claim: settlement-tag uniqueness is enforced within
- * a single Oracle/Settlement deployment, not globally across independent
+ * Reproduces the §8.4 ("End-to-end deployment") cross-instance replay
+ * claim: settlement-tag uniqueness is enforced within a single
+ * Oracle/Settlement deployment, not globally across independent
  * deployments.
  *
- * The second proof (tests/fixtures/settlement_verify_v2_case9, carried over
- * unmodified from the authors' internal POC repository, where it was
- * generated against the exact same settlement_verify_v2 circuit and zkey
- * shipped in this repository — see build/circuits/settlement_verify_v2/)
- * shares the main proof's e2eId and domain key — hence the same settlement
- * tag nu and the same domain anchor K — but has a different amount/salt0/
- * salt/txid, hence a different c0 (a distinct operation). No proof,
- * circuit, or key was regenerated to produce this test.
+ * The test uses the real Groth16 proof (build/circuits/settlement_verify_v2)
+ * for the successful settlement, and a second, independently generated
+ * proof fixture (tests/fixtures/settlement_verify_v2_case9, carried over
+ * unmodified from the authors' internal POC repository — generated against
+ * the exact same settlement_verify_v2 circuit and zkey shipped in this
+ * repository) to represent a distinct operation carrying the same
+ * settlement tag. That second operation is rejected at the oracle's
+ * attestation gate, before proof verification is reached — its proof is
+ * never submitted to finalize()/verifyProof(). The independent deployment
+ * (instance B) then accepts the real proof's settlement tag on its own,
+ * showing that uniqueness is instance-scoped. No proof, circuit, or key was
+ * regenerated to produce this test.
  */
 
 const MAIN_DIR = "build/circuits/settlement_verify_v2";
