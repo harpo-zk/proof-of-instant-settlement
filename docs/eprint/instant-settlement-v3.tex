@@ -1,0 +1,2115 @@
+% Cryptographic Settlement Binding for Confidential On-Chain State — Harpo (v3)
+% Compila com: pdflatex instant-settlement-v3.tex (2x para refs/citacoes)
+% Dependencias: pacotes padrao (article, amsmath, amssymb, amsthm, hyperref, booktabs, xcolor, geometry).
+% Bibliografia embutida via thebibliography (sem BibTeX), pela mesma razao de
+% reprodutibilidade adotada na v2: nenhuma dependencia exotica.
+\ifdefined\XeTeXversion\else\pdfoutput=1\fi
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[margin=0.75in]{geometry}
+\setlength{\columnsep}{0.25in}
+\usepackage{microtype}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue,breaklinks=true,
+  pdftitle={Cryptographic Settlement Binding for Confidential On-Chain State},
+  pdfauthor={Juliano Pereira Sales, Marco Tulio Rocha Nascimento},
+  pdfsubject={Zero-knowledge proofs, confidential settlement, instant payments},
+  pdfkeywords={zero-knowledge proofs, confidential transactions, settlement binding, payment attestation, external-state binding, EVM, Groth16, Poseidon, instant payments}
+]{hyperref}
+\usepackage{xurl}
+\usepackage{longtable}
+\setlength{\emergencystretch}{1.5em}
+
+\newtheorem{property}{Property}
+\newtheorem{theorem}{Theorem}
+
+\newcommand{\Poseidon}{\ensuremath{\mathsf{Poseidon}}}
+\newcommand{\eeid}{\ensuremath{\mathsf{e2eId}}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\amount}{\ensuremath{\text{amount}}}
+\newcommand{\txid}{\ensuremath{\text{txid}}}
+\newcommand{\party}{\ensuremath{\text{party}}}
+\newcommand{\salt}{\ensuremath{\text{salt}}}
+\newcommand{\pc}{\ensuremath{\mathit{pc}}}
+\newcommand{\Setup}{\ensuremath{\mathsf{Setup}}}
+\newcommand{\SetupZK}{\ensuremath{\mathsf{Setup\_ZK}}}
+\newcommand{\SetupDomain}{\ensuremath{\mathsf{Setup\_Domain}}}
+\newcommand{\Commit}{\ensuremath{\mathsf{Commit}}}
+\newcommand{\Prove}{\ensuremath{\mathsf{Prove}}}
+\newcommand{\Verify}{\ensuremath{\mathsf{Verify}}}
+\newcommand{\Attest}{\ensuremath{\mathsf{Attest}}}
+\newcommand{\Settle}{\ensuremath{\mathsf{Settle}}}
+\newcommand{\Locked}{\ensuremath{\mathsf{Locked}}}
+\newcommand{\Finalized}{\ensuremath{\mathsf{Finalized}}}
+\newcommand{\Irrevocable}{\ensuremath{\mathsf{Irrevocable}}}
+
+\title{\textbf{Cryptographic Settlement Binding}\\
+for Confidential On-Chain State}
+
+\author{%
+  \begin{tabular}[t]{c}
+  Juliano Pereira Sales \\
+  \small Harpo-ZK, Brazil \\
+  \small \href{mailto:tzdesing@gmail.com}{tzdesing@gmail.com}
+  \end{tabular}
+  \and
+  \begin{tabular}[t]{c}
+  Marco T\'ulio Rocha Nascimento \\
+  \small Harpo-ZK, Brazil \\
+  \small \href{mailto:marcotulio.nascimento@gmail.com}{marcotulio.nascimento@gmail.com}
+  \end{tabular}
+}
+
+\date{\today}
+
+\makeatletter
+\newenvironment{widetitleabstract}{\begin{@twocolumnfalse}}{\end{@twocolumnfalse}}
+\makeatother
+
+\begin{document}
+
+\twocolumn[
+\begin{widetitleabstract}
+\maketitle
+\begin{abstract}
+A recurring problem in confidential blockchain applications is the need to
+establish a cryptographic correspondence between a private on-chain
+obligation created before an external settlement event and an externally
+observed settlement event that becomes available only later. A
+zero-knowledge proof can establish the internal consistency of the
+on-chain state, but it does not by itself establish that an external
+payment actually occurred. Conversely, an institution may authenticate a
+statement about an external payment without revealing the payment details
+on-chain.
+
+We present \textbf{cryptographic settlement binding}, a construction that
+connects these two states while keeping the settlement amount, payment
+identifier, and counterparty identifier confidential. The construction is
+two-phase. Before settlement, a commitment $c_0$ binds the agreed amount
+and operation identifier to an on-chain obligation. After settlement, a
+second commitment $c$ binds the same amount and operation identifier to
+the settlement-side payment identifier. A domain-keyed tag $\nu$ provides
+a deterministic, single-use reference to the settlement identifier
+without revealing it, while an on-chain domain anchor $K_D$ binds the tag
+to the registered domain key. A registered payment service provider (PSP)
+signs an EIP-712 receipt over the commitments rather than over plaintext
+payment data.
+
+We formalize the resulting properties under Groth16 knowledge soundness,
+Poseidon and Keccak collision resistance, and ECDSA unforgeability. The
+construction proves cryptographic consistency and authenticates that a
+registered PSP signed the accepted statement; it does \textbf{not}
+cryptographically establish that the underlying payment rail was
+truthful. That remaining correspondence is stated explicitly as an
+institutional trust assumption. This separation prevents authentication
+of an institutional statement from being confused with independent
+evidence of external-world truth.
+
+A reference implementation uses Circom, Groth16 and Solidity and is
+exercised on a public EVM testnet. The settlement circuit contains 1,251
+R1CS constraints at the reported optimization level, and the reference
+\code{finalize} transaction costs 353,062 gas. A concrete Pix
+instantiation is provided as an application profile; the construction
+itself is independent of Pix.
+
+\medskip
+\noindent\textbf{Keywords:} zero-knowledge proofs, confidential
+transactions, settlement binding, payment attestation, external-state
+binding, EVM, Groth16, Poseidon, instant payments
+\end{abstract}
+\end{widetitleabstract}
+\vspace{1em}
+]
+
+\section{Introduction}
+
+A confidential state transition on a public blockchain can establish that
+an on-chain operation is internally consistent without revealing the
+private data on which that consistency depends. It can, for example,
+prove knowledge of an amount, ownership relation, or transaction witness
+while exposing only commitments and zero-knowledge proofs. This
+establishes a property of the blockchain state itself.
+
+A different problem arises when the state transition depends on an event
+that occurs outside the blockchain. Consider an operation in which an
+asset or obligation is committed on-chain before an external payment is
+made. Afterward, an authorized institution observes a settlement event
+and obtains information identifying that event. The system must then
+establish that the observed settlement corresponds to the particular
+confidential obligation that was committed earlier. The difficulty is not
+merely to prove that the external event exists, nor merely to prove that
+a private on-chain transition is well formed. It is to establish a
+cryptographic correspondence between the two events while keeping the
+sensitive attributes of both confidential.
+
+We call this problem \textbf{cryptographic settlement binding}.
+
+Informally, a settlement-binding protocol allows a verifier to establish
+that an externally observed settlement event is consistent with a
+confidential state transition previously committed on-chain, while
+revealing only the information required by the application. The temporal
+order is essential. Before settlement, the system can commit to the terms
+of an obligation, but the identifier of the eventual settlement event is
+not yet available as evidence of that event. After settlement, an
+authorized observer can identify and authenticate the external event, but
+the system must still demonstrate that it corresponds to the state
+committed earlier.
+
+A straightforward design could reveal the amount and external payment
+identifier to the blockchain and have a contract compare them with the
+original obligation. Such a design would establish the desired
+correspondence, but would defeat the confidentiality requirement.
+Alternatively, a zero-knowledge proof could hide the values while proving
+that a private payment identifier is related to an on-chain commitment.
+This alone, however, does not identify who is authorized to make the
+external settlement statement, nor does it distinguish cryptographic
+consistency from the truthfulness of that statement.
+
+Our construction separates these concerns.
+
+The first component is a \textbf{two-phase commitment}. Before
+settlement, an operation commits to its agreed terms as
+\[
+c_0 = \Poseidon(\amount, \salt_0, \txid).
+\]
+The commitment is registered on-chain before the external settlement is
+finalized and can therefore serve as an anchor for an asset escrow or
+another dependent state transition. After settlement, a second commitment
+is formed as
+\[
+c = \Poseidon(\amount, \salt, \eeid, \txid),
+\]
+where \eeid\ denotes the settlement-side identifier supplied by the
+concrete payment rail. The settlement proof demonstrates knowledge of a
+common \amount\ and \txid\ underlying both commitments. Thus the external
+settlement identifier is introduced only in the second phase, while the
+relationship to the previously committed obligation is established in
+zero knowledge.
+
+The second component is a \textbf{domain-keyed settlement tag},
+\[
+\nu = \Poseidon(\eeid, k_D), \qquad K_D = \Poseidon(k_D).
+\]
+The tag gives the on-chain protocol a deterministic identifier for the
+settlement under a particular domain without exposing the underlying
+settlement identifier. In the reference construction, the tag is consumed
+at most once by a deployed settlement instance. This provides a
+cryptographically checkable single-use property while preserving
+confidentiality of the external identifier. The domain key also makes the
+linkage selective: an observer that does not possess $k_D$ cannot simply
+recompute tags for arbitrary settlement identifiers. The resulting
+property is not global anonymity or unlinkability; those properties are
+outside the scope of the construction.
+
+The third component is an explicit \textbf{institutional trust boundary}.
+A registered settlement observer signs an authenticated receipt
+containing the pre-settlement commitment and the public settlement-binding
+values. In the reference construction, the receipt is represented using
+EIP-712 and includes an expiration condition. The zero-knowledge proof
+establishes consistency between the commitments and the settlement
+identifier; the signature establishes that the statement was issued by a
+registered attestor. These are cryptographic statements about consistency
+and authentication.
+
+They are not, by themselves, statements that the external payment rail
+was truthful.
+
+More precisely, acceptance establishes that the accepted proof is
+consistent with the pre-settlement commitment and that the corresponding
+receipt was authenticated by a registered attestor. The construction
+therefore makes the remaining institutional assumption explicit: the
+authorized attestor is assumed to report settlement correctly. This
+assumption is not hidden inside the zero-knowledge relation and is not
+presented as a consequence of cryptography. Removing or weakening it is
+treated separately as an open problem.
+
+This separation is important because an authenticated statement and a
+truthful statement are different security objects. A cryptographic
+protocol can prevent an adversary from forging a statement under an
+honest attestor's key; it cannot, without an additional source of trusted
+evidence, determine whether the institution itself reported a false
+settlement. The construction consequently reduces the cryptographic
+problem to authentication and consistency while exposing the
+institutional assumption as an explicit boundary of the security model.
+
+The paper makes three main contributions.
+
+\textbf{First, we define and construct cryptographic settlement binding.}
+The construction introduces a two-phase commitment relation in which a
+confidential obligation is committed before settlement and a subsequent
+zero-knowledge proof binds the resulting external settlement identifier
+to the same confidential terms. The construction is expressed
+independently of a particular payment rail.
+
+\textbf{Second, we introduce a domain-keyed settlement tag for
+confidential single-use identification.} The tag deterministically
+represents the external settlement identifier under a domain secret,
+while its public representation does not disclose that identifier. The
+security analysis characterizes its binding and single-use properties
+under the stated cryptographic assumptions and deployment scope.
+
+\textbf{Third, we make the institutional trust boundary explicit and
+characterize what the cryptographic protocol does and does not
+establish.} In particular, the security analysis distinguishes
+authentication of a settlement statement from the truth of the underlying
+external event. This separation prevents the protocol's cryptographic
+guarantees from being conflated with assumptions about the behavior of
+the institution providing the attestation.
+
+The remainder of the paper formalizes these claims. Section~\ref{sec:model}
+defines the settlement-binding model, its participants, state, and
+security goal. Section~\ref{sec:construction} gives the construction and
+its protocol algorithms. Section~\ref{sec:security} analyzes commitment
+binding, two-phase consistency, attestation authenticity, and single-use
+settlement. Section~\ref{sec:privacy} characterizes the resulting
+confidentiality properties and their limits. Section~\ref{sec:pix}
+instantiates the construction for Pix, while Section~\ref{sec:predicates}
+describes policy predicates that can consume the resulting confidential
+commitments. Section~\ref{sec:impl} evaluates the reference
+implementation, including circuit size, gas consumption, and
+well-determinedness analysis. Section~\ref{sec:related} positions the
+construction relative to external-payment proofs and confidential EVM
+systems, and Section~\ref{sec:limitations} states the remaining
+limitations and open problems.
+
+The construction is intentionally narrower than a complete payment
+system. It does not establish central-bank or payment-rail truth without
+an additional trusted source, does not provide transaction unlinkability,
+and does not claim economic finality beyond the state-transition policy
+of the deployment. Pix is used only as a concrete instantiation of the
+generic construction in Section~\ref{sec:pix}; the cryptographic
+construction and its security properties do not depend on Pix-specific
+semantics.
+
+\section{Settlement-Binding Model}
+\label{sec:model}
+
+\subsection{Problem Definition}
+
+We consider an application in which a confidential on-chain operation
+depends on an external settlement event.
+
+Let an operation $O$ have agreed private terms $T=(\amount,\txid)$, where
+\amount\ is the agreed value and \txid\ is an application-level operation
+identifier. Before the external settlement occurs, the application must
+be able to create an on-chain state that commits to these terms.
+
+Later, an external payment or settlement rail produces an identifier
+\eeid, observable by an authorized institution. The identifier \eeid\ is
+not itself assumed to prove that settlement occurred: an identifier may
+exist for an operation that is subsequently rejected or otherwise fails
+to settle. The external event therefore requires an authenticated
+statement from an institution that is authorized to observe the rail.
+
+The problem addressed by this paper is to establish a binding between the
+two states: (1) a confidential commitment to the agreed terms created
+before settlement; and (2) a confidential commitment incorporating the
+settlement-side identifier created after settlement.
+
+We call this correspondence \textbf{cryptographic settlement binding}.
+
+The construction is intentionally independent of a particular payment
+rail. A rail-specific deployment supplies an identifier \eeid, a
+canonical representation of the relevant external fields, and an
+authorized attestor capable of evaluating the required commitment. The
+core construction does not require the settlement identifier itself to
+become public.
+
+\subsection{Participants and Trust Boundary}
+
+The model contains four logical roles.
+
+\textbf{Obligation issuer.} Creates the pre-settlement operation and its
+commitment. The issuer may be a smart contract, an application, or an
+escrow component.
+
+\textbf{Prover.} Holds the private witness required to demonstrate that
+the pre- and post-settlement commitments refer to the same operation.
+
+\textbf{Attestor.} An authorized institution that observes the external
+settlement system and signs a statement about the observed event.
+
+\textbf{Verifier.} The on-chain contract that accepts or rejects the
+settlement transition.
+
+The construction separates two claims that are often conflated.
+
+First, the verifier can establish a cryptographic statement:
+\begin{quote}
+\small
+\emph{same confidential witness} $\Rightarrow$ \emph{consistent pre- and
+post-settlement commitments.}
+\end{quote}
+Second, the verifier can establish an authentication statement:
+\begin{quote}
+\small
+\emph{registered attestor} $\Rightarrow$ \emph{the accepted receipt was
+signed by an authorized key.}
+\end{quote}
+Neither statement alone establishes that the external settlement system
+actually behaved as claimed. That final correspondence is an
+institutional assumption about the attestor.
+
+Accordingly, the principal trust boundary is:
+\begin{quote}
+\small
+\fbox{\begin{minipage}{0.9\linewidth}
+\centering
+cryptographic consistency $+$ attestor authentication $\neq$
+independent rail truth
+\end{minipage}}
+\end{quote}
+The distinction is fundamental to the security claims of the
+construction.
+
+\subsection{Commitments and Domain Separation}
+\label{sec:model-commitments}
+
+Let $H$ be a collision-resistant hash function suitable for use inside
+the selected zero-knowledge proof system.
+
+For an operation with \amount, operation identifier \txid, settlement
+identifier \eeid, and fresh randomness $\salt_0,\salt$, define
+conceptually:
+\[
+\begin{aligned}
+c_0 &= H(\amount,\salt_0,\txid) \\
+c &= H(\amount,\salt,\eeid,\txid).
+\end{aligned}
+\]
+The first commitment represents the obligation before settlement. The
+second represents the corresponding state after settlement.
+
+A domain $D$ is associated with a secret key $k_D$ and a public anchor
+\[
+K_D = H(k_D).
+\]
+The settlement-side identifier is represented by a domain-keyed tag
+\[
+\nu = H(\eeid,k_D).
+\]
+The tag provides a public handle that does not reveal \eeid\ to an
+observer that does not possess the domain key.
+
+A counterparty commitment may similarly be represented as
+\[
+\pc = H(\party,\salt_p),
+\]
+where \party\ is the relevant counterparty identifier and $\salt_p$ is
+fresh randomness.
+
+These equations define the abstract relation that the construction must
+prove. Their concrete circuit realization is given in
+Section~\ref{sec:construction}.
+
+\subsection{Settlement-Bound Acceptance}
+
+An operation is \textbf{cryptographically settlement-bound} when an
+accepting execution establishes all of the following:
+\begin{enumerate}
+\item a valid pre-settlement commitment $c_0$ was registered for the
+  operation;
+\item a valid zero-knowledge witness connects $c_0$ and $c$ through the
+  same \amount\ and operation identifier;
+\item the settlement tag $\nu$ is derived from the settlement-side
+  identifier \eeid\ under the registered domain key;
+\item the accepted counterparty commitment is part of the same witness;
+\item a registered attestor authenticated the same $(c_0,\nu,\pc)$ tuple
+  accepted by the verifier; and
+\item the tag cannot be consumed twice within the deployed settlement
+  instance.
+\end{enumerate}
+The resulting statement is therefore stronger than either a standalone
+zero-knowledge transfer proof or a standalone payment signature: it binds
+an external settlement observation to a previously registered
+confidential on-chain obligation.
+
+\subsection{Security Properties}
+
+The formal analysis in Section~\ref{sec:security} considers four
+principal properties.
+
+\textbf{Commitment consistency.} An accepting proof cannot substitute
+different values or operation identifiers between the pre- and
+post-settlement commitments, except with negligible probability under the
+stated cryptographic assumptions.
+
+\textbf{Settlement-identifier binding.} An accepting proof binds the
+public settlement tag to the settlement identifier contained in its
+witness under the registered domain key.
+
+\textbf{Attestation binding.} An accepting settlement is associated with
+a receipt signed by a registered attestor over the same public
+commitments accepted by the verifier.
+
+\textbf{Instance-scoped single use.} A settlement tag accepted by one
+deployed settlement instance cannot be consumed again by that instance.
+
+The properties deliberately do not include a claim that the external
+payment rail itself is truthful. That statement belongs to the
+institutional assumption described next.
+
+\subsection{Institutional Assumption}
+
+Let $I_1$ denote the trusted-attestor assumption.
+
+A registered attestor signs $\mathit{settled}=\mathit{true}$ only for an
+external payment that it observed as settled and credited, and maintains
+an authoritative internal mapping between the operation identifier,
+settlement identifier, amount, and relevant counterparty information.
+
+Under $I_1$, the attestation provides an authenticated bridge from the
+external event to the cryptographic construction.
+
+Without $I_1$, the protocol still authenticates that a registered key
+signed the statement, but it cannot distinguish a truthful statement from
+a deliberately false one produced by a malicious or compromised attestor.
+
+This distinction is preserved throughout the remainder of the paper.
+
+\subsection{What the Model Does Not Claim}
+
+The model does not assume that the external rail exposes a
+cryptographically verifiable proof to the public EVM. It also does not
+provide economic finality, anonymity, or unlinkability merely from the
+use of zero-knowledge proofs.
+
+In particular, confidentiality of \amount, \eeid, and \party\ from
+ordinary chain observers is distinct from unlinkability between
+operations. Holders of the domain key can intentionally use $\nu$ as a
+selective-linkability mechanism.
+
+The concrete construction implementing this model is specified in
+Section~\ref{sec:construction}.
+
+\section{Settlement-Binding Construction}
+\label{sec:construction}
+
+This section instantiates the abstract model of Section~\ref{sec:model}
+as a concrete EVM-compatible construction using Poseidon commitments
+\cite{poseidon}, a Groth16 proof \cite{groth16}, a domain-keyed settlement
+tag, and an EIP-712 attestation receipt. The construction is represented
+by the tuple
+\[
+\Pi = (\Setup, \Commit, \Prove, \Verify, \Attest, \Settle).
+\]
+The algorithms are not intended to introduce a new zero-knowledge proof
+system. They specify how standard commitments, a Groth16 proof, an
+institutional attestation, and an on-chain state transition are composed
+to realize the settlement-binding relation defined in
+Section~\ref{sec:model}.
+
+\subsection{Setup}
+
+\Setup\ is the composition of two independent sub-algorithms,
+\[
+\Setup \;\rightarrow\; (\SetupZK, \SetupDomain),
+\]
+which are not run together and do not share randomness or inputs.
+
+\paragraph{\SetupZK.}
+\[
+\SetupZK(1^\lambda) \;\rightarrow\; (pp,vk)
+\]
+generates the Groth16 proving and verification parameters for the
+settlement circuit. This step requires a trusted-setup ceremony and is
+run once per circuit, independently of any settlement domain. The same
+$(pp,vk)$ pair is reused by every domain that deploys the same circuit.
+
+\paragraph{\SetupDomain.}
+\[
+\SetupDomain(1^\lambda, D) \;\rightarrow\; (k_D, K_D)
+\]
+samples a fresh domain secret $k_D$ for a settlement domain $D$ and
+computes the public domain anchor
+\[
+K_D = \Poseidon(k_D).
+\]
+Creating a domain never requires a new Groth16 ceremony. The deployed
+verifier stores $K_D$ as the domain anchor; rotating $k_D$ creates a new
+domain rather than mutating the existing anchor. A deployment may create
+many domains against a single $(pp,vk)$ produced once by \SetupZK.
+
+\subsection{Commit}
+
+For agreed private terms $T=(\amount,\txid)$, the commitment algorithm
+samples fresh $\salt_0$ and computes
+\[
+\begin{aligned}
+c_0 &= \Commit_0(\amount,\txid;\salt_0) \\
+    &= \Poseidon(\amount,\salt_0,\txid).
+\end{aligned}
+\]
+The application registers $c_0$ with the on-chain settlement instance and
+locks the corresponding operation. At this point the settlement-side
+identifier \eeid\ is not required by the on-chain state: the operation
+establishes its cryptographic identity before the external event occurs.
+
+After settlement, the prover samples fresh \salt\ and computes
+\[
+\begin{aligned}
+c &= \Commit_1(\amount,\eeid,\txid;\salt) \\
+  &= \Poseidon(\amount,\salt,\eeid,\txid),
+\end{aligned}
+\]
+where \eeid\ is the settlement-side identifier obtained from the external
+payment rail.
+
+The two commitments are intentionally distinct: $c_0$ identifies the
+obligation before settlement, while $c$ incorporates the external
+settlement identifier. The same private \amount\ and \txid\ are reused
+across both, rather than independently supplied, which is what gives the
+construction its binding property (made explicit in
+Section~\ref{sec:invariant}).
+
+\subsection{Prove}
+\label{sec:prove}
+
+The prover constructs the witness
+\[
+w = (\amount,\salt_0,\salt,\eeid,\txid,k_D,\party,\salt_p)
+\]
+and computes
+\[
+\begin{aligned}
+\nu &= \Poseidon(\eeid,k_D), \\
+\pc &= \Poseidon(\party,\salt_p).
+\end{aligned}
+\]
+The public statement is
+\[
+y = (c_0,c,\nu,K_D,\pc).
+\]
+The prover then computes
+\[
+\pi \leftarrow \Prove(pp,w;y).
+\]
+The circuit accepts the witness only if
+\begin{align}
+c_0 &= \Poseidon(\amount,\salt_0,\txid), \label{eq:c0}\\
+c &= \Poseidon(\amount,\salt,\eeid,\txid), \label{eq:c}\\
+\nu &= \Poseidon(\eeid,k_D), \label{eq:nu}\\
+K_D &= \Poseidon(k_D), \label{eq:KD}\\
+\pc &= \Poseidon(\party,\salt_p). \label{eq:pc}
+\end{align}
+The same private \amount\ and \txid\ are structurally constrained in both
+phases: a valid proof does not merely show that two independently
+supplied hashes are valid, but that both commitments were derived from
+the same private amount and operation identifier.
+
+The settlement tag $\nu$ is intentionally scoped to the domain key $k_D$
+rather than computed directly from \eeid. This prevents an observer who
+already knows a candidate \eeid\ from testing it directly against
+on-chain tags without knowledge of $k_D$, and it makes the single-use
+property enforced on $\nu$ (Section~\ref{sec:settle}) instance-scoped
+rather than globally unique across independently deployed domains.
+
+The counterparty commitment \pc\ is likewise not published in plaintext;
+it is cross-checked against the PSP's own commitment at settlement time
+(Section~\ref{sec:attest}), which is what makes downstream predicates
+over \pc\ meaningful rather than decorative --- without that cross-check,
+a prover could generate a valid settlement proof while associating it
+with an unrelated counterparty commitment.
+
+\subsection{Verify}
+
+The proof verifier evaluates
+\[
+\Verify(vk,y,\pi) \in \{0,1\}.
+\]
+Acceptance establishes only the cryptographic relation represented by the
+circuit. In particular, successful verification does not independently
+establish that the external settlement identified by \eeid\ actually
+occurred. The latter statement enters through \Attest.
+
+\subsection{Attest}
+\label{sec:attest}
+
+A registered payment institution evaluates the external event and
+constructs the typed receipt
+\[
+R = (c_0,\nu,\pc,\mathit{settled},\mathit{deadline}).
+\]
+The attestor signs the receipt using EIP-712:
+\[
+\sigma \leftarrow \mathsf{Sign}_{sk_P}(R).
+\]
+The attestation therefore authenticates the public commitments rather
+than exposing the amount, settlement identifier, or counterparty
+identifier.
+
+The attestor is assumed to derive $c_0$ from the amount it actually
+observed for the external settlement --- independently recomputing
+\[
+c_0' = \Poseidon(\mathit{amount\_settled},\salt_0,\txid)
+\]
+and signing only when $c_0'$ matches the operation's registered $c_0$.
+This gives the construction its \textbf{commitment-carried
+value-consistency} property: the attestor authenticates a commitment
+derived from the observed amount without the amount itself ever
+appearing in the receipt.
+
+The receipt also carries an expiration deadline; a stale receipt cannot
+be used to finalize an operation after its authorization period.
+
+\subsection{Settle}
+\label{sec:settle}
+
+The on-chain settlement algorithm evaluates
+\[
+\Settle(c_0,\nu,\pc,\pi,R,\sigma).
+\]
+It accepts only if:
+\begin{enumerate}
+\item the operation is currently \Locked;
+\item $\sigma$ authenticates a currently registered attestor;
+\item $\mathit{settled}=\mathit{true}$;
+\item the receipt has not expired;
+\item the receipt's $c_0$ equals the locked commitment;
+\item the receipt's \pc\ equals the proof's public \pc;
+\item the proof's $K_D$ equals the registered domain anchor;
+\item $\Verify(vk,y,\pi)=1$; and
+\item $\nu$ has not already been consumed.
+\end{enumerate}
+Upon acceptance, the contract records the settlement result and consumes
+$\nu$, transitioning the operation to \Finalized.
+
+The ordering of the checks is also relevant operationally: inexpensive
+receipt and state checks (1--7) can reject malformed submissions before
+the pairing-based proof verification (8) is executed.
+
+\subsection{Construction Invariant}
+\label{sec:invariant}
+
+The central invariant of the construction is that
+\[
+\begin{aligned}
+c_0 &= \Poseidon(\amount,\salt_0,\txid) \\
+c &= \Poseidon(\amount,\salt,\eeid,\txid)
+\end{aligned}
+\]
+share the private values \amount\ and \txid. Because the same private
+amount and txid occur in both relations, an accepting proof establishes
+that the pre-settlement and post-settlement commitments refer to the
+same agreed value and operation identifier, subject to the cryptographic
+assumptions stated in Section~\ref{sec:security}.
+
+The additional relations
+\[
+\begin{aligned}
+\nu &= \Poseidon(\eeid,k_D) \\
+K_D &= \Poseidon(k_D)
+\end{aligned}
+\]
+bind the public settlement tag to the registered domain.
+
+Finally, the attestation relation binds the accepted public tuple
+$(c_0,\nu,\pc)$ to a registered institutional key.
+
+The security consequences of these relations are proved in
+Section~\ref{sec:security}.
+
+\subsection{Reversal and Liveness}
+\label{sec:reversal}
+
+A valid attestation does not necessarily imply economic irreversibility
+of the external settlement.
+
+The reference deployment therefore distinguishes \Finalized\ from
+\Irrevocable.
+
+Within the configured dispute window, the authorized attestor may
+register a reversal. A reversed operation cannot become releasable merely
+because the nominal window subsequently expires.
+
+Separately, an operation that remains locked without successful
+settlement can expire through the protocol timeout. This prevents an
+unavailable or non-cooperating attestor from permanently locking the
+pre-settlement obligation.
+
+The timeout is a liveness mechanism; it is not evidence about the
+external payment rail.
+
+\subsection{Protocol Summary}
+
+The resulting sequence realizes $\Pi$ end to end:
+\begin{enumerate}
+\item run \SetupDomain\ to register the domain anchor $K_D$ (\SetupZK\
+  having already produced $(pp,vk)$ once for the circuit);
+\item run \Commit\ to compute $c_0$ from the agreed amount and operation
+  identifier, and lock the operation against $c_0$;
+\item observe the external settlement and obtain the settlement-side
+  identifier \eeid;
+\item run \Commit\ to construct $c$, and run \Prove\ to construct $\nu$,
+  \pc, and the proof $\pi$;
+\item obtain the PSP receipt via \Attest, over
+  $(c_0,\nu,\pc,\mathit{settled},\mathit{deadline})$;
+\item submit the receipt and proof to \Settle;
+\item \Settle\ verifies the attestation, public commitments, domain
+  anchor and proof, consumes $\nu$, and finalizes the operation.
+\end{enumerate}
+The construction establishes the cryptographic relation between the
+pre-settlement obligation and the post-settlement state.
+Section~\ref{sec:security} analyzes the security properties of this
+relation.
+
+\section{Security Analysis}
+\label{sec:security}
+
+This section characterizes the security guarantees provided by the
+settlement-binding construction. The analysis separates three different
+claims that are easily conflated:
+\begin{itemize}
+\item commitment binding, which prevents a commitment from being opened
+  to different values;
+\item two-phase consistency, which binds the post-settlement state to the
+  pre-settlement obligation; and
+\item authenticated settlement binding, which connects the resulting
+  confidential state to an attestation produced by an authorized PSP.
+\end{itemize}
+We additionally analyze single-use settlement tags and state the main
+settlement-binding theorem.
+
+The analysis uses the following assumptions.
+
+\begin{itemize}
+\item \textbf{(A1) Groth16 knowledge soundness.} The deployed Groth16
+  system is knowledge-sound for the settlement circuit under its trusted
+  setup.
+\item \textbf{(A2) Poseidon collision resistance and random-oracle
+  privacy heuristic.} It is computationally infeasible to find distinct
+  inputs producing the same Poseidon output. For the confidentiality
+  discussion only, Poseidon is modeled as a random oracle, with fresh
+  high-entropy salts used as blinding values.
+\item \textbf{(A3) ECDSA/EIP-712 unforgeability.} Signatures produced
+  under the registered PSP keys satisfy EUF-CMA security.
+\item \textbf{(A4) Charge-identifier uniqueness.} Within a domain, a
+  \txid\ identifies a single payment obligation and is not legitimately
+  reused for distinct charges.
+\item \textbf{(A5) Keccak-256 collision resistance.} The hash used by
+  the attestation oracle to bind the off-chain receipt data is collision
+  resistant.
+\end{itemize}
+
+We also distinguish these cryptographic and operational assumptions from
+the institutional assumption that a registered PSP reports settlement
+correctly. The latter cannot be discharged by the cryptographic
+construction.
+
+\subsection{Commitment binding}
+
+The first property concerns the individual commitments independently of
+the settlement protocol.
+
+\begin{property}[Commitment binding]
+No probabilistic polynomial-time adversary can produce two distinct
+openings of the same $c_0$ or $c$, except with negligible probability.
+\end{property}
+
+For $c_0$, suppose an adversary produces
+$(\amount_1,\salt_{0,1},\txid_1)$ and $(\amount_2,\salt_{0,2},\txid_2)$
+such that
+$\Poseidon(\amount_1,\salt_{0,1},\txid_1) = \Poseidon(\amount_2,\salt_{0,2},\txid_2)$
+while the two tuples differ. This constitutes a collision in Poseidon.
+
+The same argument applies to $c$.
+
+Therefore,
+\begin{equation}
+\Pr[\mathsf{Bad}_{CB}] \le \mathsf{Adv}^{CR}_{\Poseidon}(A). \label{eq:badcb}
+\end{equation}
+This property is independent of Groth16, the PSP attestation, and the
+settlement contract. It is a property of the commitment function itself.
+
+\subsection{Two-phase consistency}
+
+Commitment binding alone is insufficient. The central property of the
+construction is that the same confidential obligation is represented
+before and after settlement.
+
+Recall that $c_0 = \Poseidon(\amount,\salt_0,\txid)$ and
+$c = \Poseidon(\amount,\salt,\eeid,\txid)$.
+
+The circuit contains a single witness variable \amount\ and a single
+witness variable \txid, which are used in both equations.
+
+\begin{theorem}[Two-phase consistency]
+Assume Groth16 knowledge soundness and Poseidon collision resistance.
+Except with negligible probability, every accepting proof contains a
+witness for which the \amount\ and \txid\ used in $c$ are identical to
+those used in $c_0$.
+\end{theorem}
+
+Consequently, if an escrow was created against
+$c_0 = \Poseidon(\amount^*,\salt_0^*,\txid^*)$, an accepting proof cannot
+use an amount or txid different from $(\amount^*,\txid^*)$ in the
+post-settlement commitment, except with negligible probability.
+
+\begin{proof}
+Consider an accepting proof $\pi$. By Groth16 knowledge soundness, except
+with negligible probability an extractor obtains a witness
+$w=(\amount,\salt_0,\salt,\eeid,\txid,k_D,\party,\salt_p)$ satisfying the
+circuit relation.
+
+Because the circuit contains one witness variable \amount, that same
+value occurs in both commitment equations. Likewise, a single witness
+variable \txid\ occurs in both equations. There are therefore no
+independent values $\amount_0,\amount_1$ or $\txid_0,\txid_1$ that the
+prover can select independently.
+
+It remains to relate the extracted witness to the escrowed commitment. If
+$(\amount,\txid) \neq (\amount^*,\txid^*)$, then the extracted witness
+and the escrow-opening values define two distinct preimages of the same
+$c_0$. This contradicts Poseidon collision resistance.
+
+Hence
+\begin{equation}
+\Pr[\mathsf{Bad}_{2P}(A)] \le \mathsf{Adv}^{KS}_{\mathrm{Groth16}}(A) +
+\mathsf{Adv}^{CR}_{\Poseidon}(A). \label{eq:bad2p}
+\end{equation}
+\end{proof}
+
+The implementation audit confirms that this equality is enforced
+structurally by the circuit: \amount\ and \txid\ are the same private
+witness variables in both commitment computations rather than values
+compared by an external software check.
+
+This property is deliberately weaker than a statement about real-world
+settlement. It establishes consistency between the two confidential
+commitments; whether the corresponding external event actually settled
+is handled separately by the attestation layer.
+
+\subsection{Authenticated settlement binding}
+
+The previous theorem establishes consistency between the two phases but
+does not authenticate the external settlement observation.
+
+The attestation layer adds this missing link.
+
+\begin{property}[Authenticated settlement binding]
+An accepted operation is settlement-bound if there exist: a registered
+PSP $P$; an unexpired receipt
+$R=(c_0,\nu,\pc,\mathit{true},\mathit{deadline})$; a valid PSP signature
+$\sigma=\mathsf{Sign}_P(R)$; and a Groth16 witness satisfying the
+settlement circuit, such that the receipt and the accepted proof refer to
+the same $(c_0,\nu,\pc)$.
+\end{property}
+
+This property intentionally does not state that the PSP's assertion
+$\mathit{settled}=\mathit{true}$ is objectively true. That fact belongs
+to the institutional trust boundary.
+
+\begin{theorem}[Settlement binding]
+\label{thm:settlement-binding}
+Condition on deterministic correctness of the deployed settlement
+contract and immutability of the registered domain anchor $K_D$. Under
+assumptions (A1), (A2), (A3), and (A5), for every probabilistic
+polynomial-time adversary $A$,
+\begin{multline}
+\Pr[\mathsf{Bad}_{SB}(A)] \le \mathsf{Adv}^{\mathrm{EUF\text{-}CMA}}_{\mathrm{ECDSA}}(A) \\
++ \mathsf{Adv}^{KS}_{\mathrm{Groth16}}(A) + \mathsf{Adv}^{CR}_{\Poseidon}(A) \\
++ \mathsf{Adv}^{CR}_{\mathrm{Keccak}}(A). \label{eq:badsb}
+\end{multline}
+\end{theorem}
+
+Here $\mathsf{Bad}_{SB}$ is the event that \Settle\ accepts an operation
+for which either: no registered PSP signed the accepted tuple
+$(c_0,\nu,\pc,\mathit{true},\mathit{deadline})$, or the accepted tag
+$\nu$ is not the value $\Poseidon(\eeid,k_D)$ for the \eeid\ contained in
+an accepting witness under the registered domain key.
+
+\begin{proof}[Proof sketch]
+Suppose \Settle\ accepts. First, the deployed contract verifies the
+Groth16 proof against $(c_0,c,\nu,K_D,\pc)$. By knowledge soundness,
+except with negligible probability, an extractor obtains a witness
+satisfying the circuit equations. In particular,
+$\nu=\Poseidon(\eeid,k_D)$ and $K_D=\Poseidon(k_D)$. If the witness used
+a domain key different from the registered key while producing the same
+$K_D$, this would yield a Poseidon collision except with negligible
+probability.
+
+Second, the contract requires a valid attestation for the same $c_0$,
+$\nu$, and \pc. If an adversary produces an accepted receipt without a
+registered PSP having signed it, the adversary has forged an
+EIP-712/ECDSA signature, contradicting (A3).
+
+Third, the attestation oracle binds its off-chain receipt information to
+the corresponding tag using its binding hash. A successful substitution
+that preserves the accepted digest while changing the bound values would
+contradict the collision resistance of Keccak-256.
+
+Therefore, except with negligible probability, an accepted operation has
+both a valid ZK witness and a valid registered-PSP attestation for the
+same public tuple.
+\end{proof}
+
+The theorem establishes cryptographic consistency and attestation
+authenticity. It does not establish that the PSP itself is honest.
+
+\subsection{Single-use settlement}
+\label{sec:single-use}
+
+The settlement tag provides replay protection.
+
+For a fixed domain key, $\nu=\Poseidon(\eeid,k_D)$ is deterministic in
+the settlement identifier. Consequently, the same \eeid\ produces the
+same $\nu$ within that domain.
+
+The public anchor $K_D$ prevents a prover from selecting a different
+domain key while still satisfying the same public statement, except with
+negligible probability under Poseidon collision resistance.
+
+The reference implementation enforces single use at two independent
+points: the settlement contract records accepted tags as consumed
+(\code{tagUsed}), and the attestation oracle separately refuses to
+attest a tag that it has already attested, regardless of which
+commitment the new attestation is for. In the deployment topology used
+throughout this paper --- one oracle per deployed settlement instance ---
+the oracle's check is the one that actually fires: a second settlement
+for the same tag cannot obtain a valid attestation at all, so it never
+reaches the tag-consumption check in the settlement contract. The
+tag-consumption check in the settlement contract is retained as defense
+in depth and becomes load-bearing only in a deployment where several
+settlement contracts share a single oracle.
+
+\begin{theorem}[Instance-scoped settlement uniqueness]
+\label{thm:instance-scoped}
+Fix a domain anchor $K_D$ and a deployed (oracle, \Settle) instance pair.
+Under domain-key immutability, Poseidon collision resistance, single-use
+enforcement of $\nu$, and the charge-identifier uniqueness assumption, no
+probabilistic polynomial-time adversary can cause two accepted
+settlements corresponding to the same \eeid, except with negligible
+probability.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+Suppose two settlements correspond to the same \eeid. Because the domain
+key is fixed, $\Poseidon(\eeid,k_D)$ produces the same $\nu$ for both.
+The public anchor $K_D$ prevents the two accepting proofs from using
+unrelated domain keys except with negligible probability. The first
+accepted settlement is attested and consumes the tag at the oracle. The
+second settlement, for a different commitment but the same tag, cannot
+obtain an attestation from that oracle; absent an attestation it cannot
+satisfy the finalize precondition that requires one. Hence two accepted
+settlements for the same \eeid\ cannot occur within the same deployed
+(oracle, \Settle) instance pair, except with negligible probability.
+\end{proof}
+
+This was confirmed experimentally in the reference implementation: a
+second settlement attempt over a different commitment carrying the same
+tag is rejected by the oracle's attestation call itself, before the
+settlement contract's own finalize check is reached.
+
+The scope qualifier is important. The reference implementation does not
+provide a globally shared spent-tag registry, at either the oracle or the
+settlement-contract level. Consequently, the property does not extend
+automatically across two independently deployed (oracle, \Settle)
+instance pairs, nor across domains with different keys. This was also
+confirmed experimentally: two independently deployed (oracle, \Settle)
+pairs, each given the same commitment, tag, and proof, both accept the
+settlement, because neither oracle has prior knowledge of the other's
+attestation. A shared oracle, or a shared registry indexed by $K_D$,
+would be required to elevate this property from instance scope to domain
+scope.
+
+\subsection{Attestation authenticity versus settlement truth}
+
+The construction deliberately separates two statements that are often
+conflated: ``a registered PSP signed `settled'\," and ``the external
+payment rail actually settled.'' The first is a cryptographic property.
+The second is an institutional property.
+
+\begin{property}[Attestation authenticity]
+If \Settle\ accepts an operation, then, except with negligible
+probability under ECDSA/EIP-712 EUF-CMA security, a registered attestor
+produced the accepted receipt.
+\end{property}
+
+This follows directly from signature verification, registration
+checking, domain separation, and expiry checking.
+
+However, a malicious or compromised registered PSP can still produce a
+valid signature for a false settlement claim. No cryptographic reduction
+in this construction eliminates that possibility.
+
+We therefore model the remaining trust as:
+\begin{quote}
+\small
+\textbf{(I1)} Registered PSP honestly reports observed settlement.
+\end{quote}
+Under (I1), the cryptographic settlement-binding theorem can be
+interpreted operationally as:
+\[
+\begin{aligned}
+\mathit{Accepted} \;\Rightarrow\;\; &\mathit{ConfidentialStateConsistent} \\
+\wedge\;\; &\mathit{PSPAuthenticated} \\
+\wedge\;\; &\mathit{SettlementObserved}_{PSP}.
+\end{aligned}
+\]
+Without (I1), only the first two terms are established.
+
+This distinction is essential to the scope of the construction and
+prevents the protocol from being interpreted as a zero-knowledge proof of
+central-bank or payment-rail truth. The original analysis explicitly
+identifies this residual PSP assumption as outside the cryptographic
+reduction.
+
+\subsection{Main settlement-binding theorem}
+
+We can now state the principal security claim of the construction.
+
+\begin{theorem}[Cryptographic settlement binding]
+Assume: Groth16 knowledge soundness for the deployed settlement circuit;
+Poseidon collision resistance; ECDSA/EIP-712 EUF-CMA security; Keccak-256
+collision resistance for the attestation binding hash; uniqueness of the
+payment-obligation identifier (\txid); an immutable domain anchor $K_D$;
+and deterministic correctness of the deployed \Settle\ contract. Then
+every accepted settlement is, except with negligible probability,
+cryptographically consistent with the pre-settlement commitment and
+authenticated as the same $(c_0,\nu,\pc)$ tuple by a registered PSP. More
+precisely,
+\begin{multline}
+\Pr[\mathsf{Bad}_{SB}(A)] \le \mathsf{Adv}^{\mathrm{EUF\text{-}CMA}}_{\mathrm{ECDSA}}(A) \\
++ \mathsf{Adv}^{KS}_{\mathrm{Groth16}}(A) + \mathsf{Adv}^{CR}_{\Poseidon}(A) \\
++ \mathsf{Adv}^{CR}_{\mathrm{Keccak}}(A). \label{eq:mainbound}
+\end{multline}
+\end{theorem}
+
+The operational assumption on \txid\ uniqueness is required to interpret
+the identifier as a unique payment obligation, while the institutional
+assumption that the PSP truthfully reports settlement remains outside the
+cryptographic bound.
+
+The theorem therefore establishes the following implication:
+\begin{quote}
+\small
+$\mathsf{SettleAccept} \Rightarrow \exists w$ such that
+$c_0=\Commit_0(w)$, $c=\Commit(w)$, $\nu=\mathsf{Tag}(w)$, and
+$\pc=\mathsf{PartyCommit}(w)$; and there exists a registered PSP $P$ such
+that $P$ signed $(c_0,\nu,\pc,\mathit{true},\mathit{deadline})$.
+\end{quote}
+The theorem does not claim that the payment amount, payment identifier,
+or counterparty is publicly recoverable from the accepted transcript. Nor
+does it claim economic irreversibility of the underlying payment. Those
+are separate properties considered in the privacy and limitations
+analyses.
+
+The significance of the construction is therefore not that it removes
+the PSP from the trust model. Rather, it converts an external settlement
+observation into a cryptographically constrained statement about a
+confidential on-chain state transition, while preserving the
+confidentiality of the underlying settlement data.
+
+\section{Privacy Analysis}
+\label{sec:privacy}
+
+The settlement-binding construction is designed to hide the sensitive
+attributes of the external payment while preserving publicly verifiable
+evidence that the settlement is bound to the confidential state
+transition.
+
+The privacy claim is deliberately narrower than anonymity or
+unlinkability.
+
+\subsection{Confidential values}
+
+The following values are private witness elements: \amount, \eeid,
+\txid, \party. They are never supplied as public inputs to the
+settlement verifier.
+
+The public transcript instead contains $c_0,c,\nu,K_D,\pc$, together with
+the zero-knowledge proof and the PSP's signed receipt.
+
+The amount appears only through the commitments $c_0$ and $c$, where the
+salts provide high-entropy blinding.
+
+Likewise, the counterparty appears only through
+$\pc=\Poseidon(\party,\salt_p)$, and the payment identifier appears only
+through the keyed tag $\nu=\Poseidon(\eeid,k_D)$.
+
+For this confidentiality discussion, we use a random-oracle heuristic in
+which the fresh high-entropy salts act as blinding values. Together with
+the zero-knowledge property of Groth16, this prevents the public
+transcript from directly revealing the corresponding witness values. This
+is a privacy heuristic rather than a standalone composable hiding theorem
+for Poseidon.
+
+The PSP receipt does not contain the amount, \eeid, \txid, or plaintext
+counterparty identifier. It therefore does not introduce a plaintext
+disclosure channel.
+
+\subsection{What the construction does not hide}
+
+The construction does not provide complete transaction anonymity. In
+particular, the following remain public or potentially observable:
+existence of the on-chain operation; timing of the settlement
+transaction; submitting and relaying addresses; the registered attestor
+address; the domain anchor $K_D$; repeated counterparty commitments
+(\pc); ordinary transaction-level metadata.
+
+Therefore, confidentiality $\neq$ unlinkability.
+
+An observer may be unable to recover the amount or payment identifier
+while still correlating multiple operations through public metadata.
+
+This is intentional. The construction provides confidential settlement
+binding, not an anonymity system.
+
+\subsection{Selective linkability of the settlement tag}
+
+The keyed tag $\nu=\Poseidon(\eeid,k_D)$ provides a more specific privacy
+property.
+
+An observer outside the domain who does not know $k_D$ cannot directly
+compute candidate tags for known \eeid's. In contrast, an institution
+holding $k_D$ can compute $\Poseidon(\eeid,k_D)$ for \eeid\ values it
+legitimately observes and therefore correlate those payments with
+on-chain tags.
+
+The tag should therefore be understood as a selective-linkability
+mechanism, rather than as a universal privacy mechanism.
+
+This distinction is important because the PSP and proving institutions
+are already trusted participants in the payment domain and necessarily
+possess information that an external blockchain observer does not.
+
+\subsection{Counterparty commitments}
+
+The counterparty commitment provides a reusable pseudonymous anchor for
+the settlement participant: $\pc=\Poseidon(\party,\salt_p)$.
+
+Its purpose is not to prove the legal identity of a person or
+organization on-chain. Rather, it provides a confidential reference
+against which zero-knowledge policy predicates may subsequently be
+evaluated.
+
+The commitment is meaningful only because the PSP computes it from the
+debtor identifier contained in the payment message and the finalization
+procedure requires the attested \pc\ to equal the public \pc\ of the
+settlement proof.
+
+Without this cross-check, a prover could select a favorable counterparty
+independently of the actual payer.
+
+\subsection{Privacy boundary}
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+Property & Status \\
+\midrule
+Amount confidentiality & Protected \\
+\eeid\ confidentiality & Protected \\
+\txid\ confidentiality & Protected \\
+Counterparty identifier confidentiality & Protected \\
+Operation existence & Not protected \\
+Transaction timing & Not protected \\
+Submitter/relayer privacy & Not protected \\
+PSP identity privacy & Not protected \\
+Cross-operation unlinkability & Not guaranteed \\
+\bottomrule
+\end{tabular}
+\caption{Privacy boundary of the settlement-binding construction.}
+\end{table*}
+
+The construction consequently claims confidentiality of settlement
+attributes, not anonymity of the settlement transaction itself.
+
+\section{Pix Instantiation}
+\label{sec:pix}
+
+The general settlement-binding construction is instantiated using Pix as
+the external settlement rail.
+
+The abstraction requires three rail-side capabilities: a
+payment-obligation identifier available before settlement; a
+settlement-specific identifier available to an authorized observer of
+the payment; and an attestor capable of confirming the settlement and
+recomputing the relevant commitment.
+
+For Pix \cite{spicatalog}, the payment-obligation identifier is the
+merchant-side \txid, while the settlement-specific identifier is the
+EndToEndId (\eeid). A regulated PSP acts as the attestor.
+
+The distinction between the two identifiers is important.
+
+The \txid\ belongs to the charge and can therefore participate in the
+pre-settlement commitment: $c_0=\Poseidon(\amount,\salt_0,\txid)$.
+
+The \eeid\ is associated with the actual payment transaction and
+therefore enters the post-settlement commitment:
+$c=\Poseidon(\amount,\salt,\eeid,\txid)$.
+
+The construction does not rely on the identifier itself being evidence
+of settlement. An \eeid\ can exist for a payment that is subsequently
+rejected. Settlement status is therefore supplied by the PSP attestation
+rather than inferred from possession of the identifier.
+
+This makes the Pix instantiation representative of a broader class of
+instant-payment systems. The same architecture could apply to another
+rail if it exposes a unique settlement identifier, a pre-settlement
+obligation identifier, and an authorized institution capable of
+attesting the resulting settlement.
+
+\subsection{Settlement semantics}
+
+The reference implementation defines $\mathit{settled}=\mathit{true}$ to
+mean that the receiver has credit availability, rather than merely that
+the payment has cleared an intermediate rail state.
+
+This distinction matters because a payment can remain subject to return
+or fraud-recovery mechanisms after credit becomes available.
+
+The protocol therefore distinguishes: \Finalized\ (the cryptographic
+settlement-binding conditions were satisfied) and \Irrevocable\ (the
+protocol's configured dispute window has elapsed without an accepted
+reversal).
+
+\Irrevocable\ is a protocol state and must not be interpreted as a claim
+of economic irreversibility by the payment rail.
+
+The reference deployment uses a 72-hour dispute window. The underlying
+rail may permit certain return or fraud-recovery mechanisms for
+substantially longer periods. Consequently, an application requiring
+economic finality must choose its own risk policy rather than treating
+the protocol state as a substitute for the rail's legal or operational
+finality.
+
+\section{Policy Predicates as an Application Layer}
+\label{sec:predicates}
+
+The settlement-binding primitive can be consumed by policy predicates
+without exposing the underlying settlement data.
+
+These predicates are intentionally treated as an application layer, not
+as part of the core settlement-binding theorem.
+
+Three reference predicates are considered.
+
+\subsection{Value bound}
+
+A range circuit proves that the committed settlement amount is below a
+policy limit: $\amount < \mathit{limit}$.
+
+The predicate uses a bounded comparison over the opening of the
+settlement commitment.
+
+The statement is deliberately called a policy predicate rather than a
+universal compliance determination. It establishes only that the amount
+satisfies the specified limit under the committed value.
+
+\subsection{Sanctions-set non-membership}
+
+A Sparse Merkle Tree represents an authority-defined set of sanctioned
+identifiers.
+
+The prover demonstrates that the committed counterparty does not occur
+in the tree: $\party \notin S$.
+
+The public statement consists of the counterparty commitment and the
+policy root.
+
+This does not establish that the counterparty is legally ``unsanctioned''
+in an absolute sense. The result is relative to the particular root, its
+version, its normalization procedure, and the authority responsible for
+maintaining it.
+
+\subsection{KYC-set membership}
+
+The dual predicate proves $\party \in \mathsf{KYCRoot}$.
+
+Again, the cryptographic statement is set membership. It does not
+independently establish the correctness, freshness, jurisdictional
+scope, or lifecycle of the underlying KYC process.
+
+\subsection{Binding predicates to the actual payer}
+
+The important architectural point is that the predicates operate on the
+settlement's attested \pc, rather than on an arbitrary prover-selected
+identity.
+
+The settlement protocol first establishes $\pc=\Poseidon(\party,\salt_p)$
+and requires the PSP attestation to contain the same \pc.
+
+A consumer of a policy predicate must then verify that its public
+commitment corresponds to the \pc\ of the settled operation.
+
+Thus the composition is: PSP-attested payer $\rightarrow$ \pc\
+$\rightarrow$ ZK policy predicate.
+
+Without this composition check, a prover could demonstrate a predicate
+about a different identity.
+
+The predicates are therefore useful as an extension of the
+settlement-binding primitive, but they do not enlarge the cryptographic
+claim of the core construction.
+
+\section{Implementation and Evaluation}
+\label{sec:impl}
+
+\subsection{Reference implementation}
+
+The settlement circuit is implemented in Circom 2.2.1, the contracts use
+Solidity 0.8.27, and the Groth16 verifier is generated with snarkjs
+0.7.5, matching the toolchain versions pinned in the reference
+repository.
+
+The primary circuit is \code{settlement\_verify\_v2}.
+
+At optimization level \code{-O2}, it contains 1,251 R1CS constraints. At
+\code{-O1}, the circuit contains 1,266 nonlinear and 1,524 linear
+constraints.
+
+The circuit exposes five public signals and eight private witness
+values.
+
+The circuit contains five Poseidon gadgets with arities 3, 4, 2, 1, 2,
+corresponding to the two commitments, settlement tag, domain anchor, and
+counterparty commitment.
+
+\subsection{On-chain cost}
+
+The primary figure is the complete settlement transaction rather than an
+isolated verifier call.
+
+On the XDC Apothem public testnet, chain ID 51, the measured transaction
+costs were:
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+Operation & Gas \\
+\midrule
+\code{lock(c0, deadline)} & 74{,}982 \\
+\code{attest(receipt, signature)} & 90{,}913 \\
+\code{finalize(proof)} & 353{,}062 \\
+isolated \code{verifyProof} & 243{,}182 \\
+\bottomrule
+\end{tabular}
+\caption{Measured XDC Apothem gas costs.}
+\end{table*}
+
+These four figures are reconfirmed against the recorded Apothem
+deployment log and the automated test suite. \code{cancel(c0)} and
+\code{attestReversal}, which appeared in an earlier draft of this table,
+are omitted here because they were not reconfirmed against the Apothem
+deployment; a local-network reproduction gives 28{,}115 and 57{,}541 gas
+respectively, close to but not identical to the previously recorded
+Apothem figures (30{,}259 and 63{,}529), and the discrepancy has not been
+attributed to a specific cause.
+
+The complete \code{finalize} transaction is the primary deployment
+metric because it includes proof verification, attestation
+cross-checking, domain-anchor validation, tag consumption, and state
+transition.
+
+The isolated verifier transaction includes its own base transaction cost
+and proof calldata and therefore cannot simply be subtracted from the
+complete \code{finalize} transaction to derive a verifier-only execution
+cost.
+
+Groth16 pairing verification remains the dominant component of the
+settlement cost.
+
+\subsection{Circuit well-determinedness}
+
+The circuits were additionally analyzed with Ecne \cite{ecne} for
+well-determinedness.
+
+This analysis is explicitly not presented as formal verification of
+functional correctness. It addresses the narrower question of whether
+circuit signals are sufficiently constrained.
+
+The meaningful \code{-O0} results were:
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Circuit & Targets solved & Signals & Result \\
+\midrule
+\code{settlement\_verify\_v2\_out} & 5/5 & 4{,}229/4{,}229 & Sound \\
+\code{kyc\_inclusion\_verify\_out} & 1/1 & 18{,}230/18{,}248 & Sound \\
+\bottomrule
+\end{tabular}
+\caption{Ecne \code{-O0} well-determinedness results.}
+\end{table*}
+
+For the optimized settlement circuit, Ecne solved 4/5 declared targets
+and therefore returned inconclusive, not unsound.
+
+This distinction is important: the optimized result does not constitute
+a negative security result. It indicates that the symbolic analysis
+could not determine one target under the optimized constraint
+representation.
+
+The analysis also exposed a methodological pitfall in which circuits
+whose public outputs are expressed only as input-plus-equality
+constraints can produce a vacuous Ecne verdict. The paper therefore
+reports the number of targets explicitly rather than relying on the
+tool's raw ``sound'' output.
+
+The well-determinedness analysis establishes the absence of a particular
+class of under-constrained-circuit bugs. It does not establish
+functional conformance with the intended protocol specification.
+
+\subsection{End-to-end deployment}
+
+The construction was deployed and exercised on the XDC Apothem public
+testnet.
+
+The complete flow was executed: lock $c_0$ $\rightarrow$ PSP receipt
+$\rightarrow$ attestation $\rightarrow$ Groth16 proof $\rightarrow$
+finalize.
+
+No amount, \eeid, or charge identifier was included in the corresponding
+settlement calldata.
+
+Negative on-chain tests exercised: non-attestor signatures,
+$\mathit{settled}=\mathit{false}$, expired receipts, mismatched $c_0$,
+mismatched counterparty commitment, incorrect domain key, reversal, and
+premature and post-deadline cancellation. These cases are exercised by a
+manually run script against the Apothem deployment and are not part of
+the automated test suite.
+
+Each negative case reverted as intended in the reference deployment.
+
+Tag replay is additionally covered by an automated test against a local
+deployment of the same contracts, using two independently generated
+Groth16 proofs that share an \eeid\ and domain key and therefore share a
+settlement tag while committing to different terms. A second settlement
+for the same tag is rejected, and --- as discussed in
+Section~\ref{sec:single-use} --- the rejection occurs at the attestation
+oracle rather than at the settlement contract's own tag-consumption
+check, which only becomes load-bearing when several settlement contracts
+share one oracle. The same automated test also confirms, by constructing
+two independently deployed (oracle, \Settle) pairs, that this single-use
+property does not extend across independent deployments, consistent with
+the instance-scoped qualifier in Theorem~\ref{thm:instance-scoped}.
+
+The reproducibility claims in this section refer to the repository state
+identified by commit \code{0db97bf91ddc5be475e3d4175a62e241eb80df79}.
+
+The prototype deployment uses the same key for deployment, attestor
+registration, and registry administration. This is explicitly an
+implementation convenience and not a design requirement. A production
+deployment should separate these roles and use appropriate governance
+controls.
+
+\section{Related Work}
+\label{sec:related}
+
+\subsection{External payment evidence}
+
+The closest prior work is ZKP2P \cite{zkp2p}, which demonstrates that
+external payment evidence can be used to authorize an on-chain action.
+
+The present construction does not claim novelty for the general pattern
+``external payment evidence $\rightarrow$ on-chain action.''
+
+Its target is narrower: pre-settlement confidential commitment
+$\rightarrow$ external settlement observation $\rightarrow$ confidential
+on-chain state.
+
+The distinguishing feature is therefore the temporal and cryptographic
+relationship between the state committed before settlement and the
+external settlement identifier available afterward.
+
+The attestation model also differs: the reference construction uses a
+regulated PSP as the institutional observer rather than consumer-facing
+email or TLS evidence.
+
+\subsection{Confidential EVM transfers}
+
+Systems such as Zeto \cite{zeto}, Nightfall, Railgun, and Rayls/Enygma
+\cite{rayls,rayls2} address confidential transfer validity.
+
+Their core question is approximately: ``Is this private on-chain state
+transition internally valid?''
+
+The settlement-binding construction addresses a different question:
+``Does a specific externally observed settlement correspond to this
+confidential on-chain state?''
+
+The construction is therefore complementary to confidential asset
+systems rather than a replacement for them.
+
+In particular, the resulting commitment can serve as an upstream input
+to a confidential asset protocol.
+
+No direct integration with Zeto or Paladin is claimed in this paper.
+
+\subsection{Institutional privacy and delivery-versus-payment}
+
+Canton \cite{canton} and the Drex ecosystem address institutional
+privacy and delivery-versus-payment in permissioned or regulated
+infrastructures.
+
+The reference construction instead places the settlement-binding layer
+on a public EVM chain while using an institutional PSP as the attestor.
+
+The resulting trust boundary is therefore different: public EVM +
+regulated attestation + zero-knowledge confidentiality.
+
+\subsection{Confidential compliance and auditability}
+
+Zeto \cite{zeto} and Qurrency \cite{qurrency} provide related mechanisms
+for confidential compliance and auditor access.
+
+The policy predicates in this work differ primarily in their disclosure
+semantics: the consumer can learn a boolean predicate result without
+necessarily receiving the underlying amount or identity.
+
+The post-quantum audit channel is similarly complementary rather than
+central to the settlement-binding contribution.
+
+\subsection{Positioning}
+
+The scientific contribution should therefore not be stated as a
+collection of novel cryptographic primitives.
+
+Poseidon commitments \cite{poseidon}, Groth16 \cite{groth16}, EIP-712
+signatures, nullifier-like tags, Sparse Merkle Trees, and confidential
+transfer mechanisms are individually established.
+
+The contribution is their composition around a specific missing
+interface: external settlement event $\rightarrow$ cryptographic
+settlement binding $\rightarrow$ confidential EVM state.
+
+This positioning is also why the Pix implementation is an instantiation
+of the construction rather than the construction itself.
+
+\section{Limitations and Open Problems}
+\label{sec:limitations}
+
+\subsection{Trusted PSP}
+
+The largest remaining trust assumption is the PSP.
+
+The construction proves that a registered PSP authenticated the accepted
+statement. It does not prove that the PSP reported truthfully.
+
+The strongest future direction is therefore to replace or weaken this
+assumption through one of several approaches: a central-bank or
+rail-level signature; signed rail artifacts verified retrospectively;
+dual attestation from both sides of the payment; zkTLS/DECO
+\cite{deco} over an authoritative PSP endpoint; or a periodically signed
+accumulator of settled payment identifiers.
+
+Of these, retrospective rail anchoring is particularly attractive
+because it does not have to remain on the critical path of settlement.
+
+A signed membership root could allow an institution to prove, after the
+fact, that its settlement identifier belongs to the rail's settled set
+while still exposing only the keyed tag on-chain.
+
+Such a mechanism, however, requires an explicit completeness guarantee
+for the published root. Without completeness, non-membership in a
+published root does not prove non-settlement.
+
+\subsection{Instance-scoped uniqueness}
+
+The current spent-tag registry is scoped to the deployed (oracle,
+\Settle) instance.
+
+A production domain spanning multiple settlement contracts would benefit
+from a shared registry indexed by $K_D$.
+
+This would elevate the uniqueness guarantee from instance scope to
+domain scope.
+
+\subsection{Domain-key compromise and rotation}
+
+The domain key $k_D$ is a security boundary.
+
+A compromised key can reveal the correspondence between observed \eeid\
+values and historical settlement tags. It does not, by itself, forge PSP
+attestations or Groth16 proofs.
+
+Key rotation is also non-trivial. Rotating $k_D$ produces a new tag for
+the same \eeid\ and therefore cannot preserve the current spent-tag
+uniqueness property across domains automatically.
+
+A production system must consequently treat key rotation as a domain
+transition rather than a transparent key-management operation.
+
+\subsection{Trusted setup}
+
+The reference settlement circuit uses a Groth16 setup with a single
+contributor followed by a beacon.
+
+This is sufficient for the experimental artifact but is not a
+production-grade ceremony.
+
+A production deployment should use a multi-party ceremony with
+independent contributors and a verifiable public randomness beacon.
+
+The trusted setup limitation affects the soundness guarantees relying on
+Groth16; it does not affect the independent commitment-binding or
+signature-unforgeability properties.
+
+\subsection{Economic finality}
+
+The protocol's \Irrevocable\ state is not equivalent to economic
+finality on the underlying payment rail.
+
+The reference deployment uses a 72-hour dispute window, while certain
+rail-level return and fraud mechanisms can remain effective for
+substantially longer periods.
+
+A deployment requiring stronger asset protection must either extend its
+risk window or introduce a rail-level anchoring mechanism that can
+represent later reversals.
+
+\subsection{Atomic delivery-versus-payment}
+
+The two-phase construction provides an escrow commitment before
+settlement, which is the necessary ingredient for DvP composition.
+
+However, a complete atomic composition with a confidential asset system
+has not yet been implemented and measured.
+
+An integration with a system such as Zeto or Paladin would therefore be
+a meaningful next experiment rather than a result claimed by this paper.
+
+\subsection{Benchmark methodology}
+
+This paper reports on-chain gas costs but does not report off-chain
+proving and verification time. An earlier internal measurement pass was
+excluded because it consisted of single warm runs rather than a
+statistically meaningful benchmark.
+
+A proper benchmark should report proving and verification time over
+$N \geq 30$ warm runs per circuit, with median and dispersion, on fixed
+and disclosed hardware. This is left for future work.
+
+Likewise, verifier comparisons across circuits should use the same
+generated verifier template before attributing gas differences to the
+number of public signals.
+
+\subsection{Well-determinedness analysis}
+
+The Ecne analysis provides evidence against one class of
+under-constrained circuits but does not prove functional correctness.
+
+Future work should cross-check the result with an independent tool such
+as $\mathrm{QED}^2$ \cite{qed2}, identify the currently unresolved
+signals in the KYC circuit, and extend the analysis to the optimized
+circuit representation.
+
+\subsection{Post-quantum audit disclosure}
+
+The ML-KEM \cite{mlkem} audit channel remains preliminary.
+
+The full in-circuit ML-KEM binding compiles at approximately 1.62
+million constraints, but end-to-end proving and on-chain verification
+measurements have not yet been established.
+
+It should therefore remain outside the core security claim until those
+measurements and artifacts are complete. ML-KEM is not part of the
+security argument for cryptographic settlement binding; it is explored
+here solely as a preliminary post-quantum audit-disclosure extension.
+
+\section{Conclusion}
+
+We introduced a cryptographic settlement-binding construction for
+confidential EVM state.
+
+The central problem is not to prove that a payment identifier exists,
+nor to replace an institutional settlement observer with zero knowledge.
+The problem is to establish a cryptographic correspondence between two
+events that occur at different times: a confidential obligation
+committed on-chain before external settlement; and an external
+settlement event observed and authenticated by an authorized
+institution.
+
+The construction addresses this problem through a two-phase commitment.
+
+Before settlement,
+\[
+c_0=\Poseidon(\amount,\salt_0,\txid)
+\]
+provides an on-chain commitment to the agreed terms.
+
+After settlement,
+\[
+c=\Poseidon(\amount,\salt,\eeid,\txid)
+\]
+incorporates the settlement-specific identifier.
+
+A Groth16 relation proves that both commitments share the same
+confidential amount and charge identifier. A domain-keyed tag
+$\nu=\Poseidon(\eeid,k_D)$ provides deterministic, instance-scoped
+single-use identification without exposing the underlying payment
+identifier. A registered PSP then authenticates the tuple
+$(c_0,\nu,\pc,\mathit{true},\mathit{deadline})$ through an EIP-712
+receipt.
+
+The resulting security statement is deliberately precise:
+\begin{quote}
+\small
+\emph{accepted settlement} $\Rightarrow$ \emph{cryptographically
+consistent confidential state} $+$ \emph{authenticated PSP statement.}
+\end{quote}
+The construction does \textbf{not} claim to establish central-bank or
+payment-rail truth without trusting the attesting institution. Removing
+or weakening this assumption remains the principal open problem.
+
+The Pix instantiation demonstrates that the construction can be
+implemented on a public EVM. The primary settlement circuit contains
+1,251 R1CS constraints at \code{-O2}, while the reference \code{finalize}
+transaction costs 353,062 gas on the XDC Apothem testnet. The
+implementation also demonstrates negative acceptance cases and provides
+circuit well-determinedness evidence under the stated methodology.
+
+More broadly, the construction is intended as an interface between two
+otherwise separate systems:
+\begin{quote}
+\small
+\emph{real-world settlement} $\rightarrow$ \emph{settlement binding}
+$\rightarrow$ \emph{confidential asset state.}
+\end{quote}
+This interface can be instantiated for Pix and potentially for other
+instant-payment rails, and can serve as an upstream component for
+confidential asset systems.
+
+The principal result is therefore not a new commitment primitive or a
+new zero-knowledge system. It is a formally characterized method for
+cryptographically binding an externally observed settlement event to a
+confidential on-chain state transition while revealing only
+application-required information.
+
+\appendix
+
+\section{Pix Canonicalization Profile}
+\label{app:pix}
+
+This appendix specifies the concrete canonicalization profile used by
+the Pix instantiation of Section~\ref{sec:pix}. It is a deployment
+profile and is not part of the cryptographic settlement-binding
+construction itself.
+
+\subsection{Counterparty Identifier}
+
+For CPF, the canonical representation is the 11 decimal digits of the
+identifier, with punctuation removed and no padding.
+
+For CNPJ, the canonical representation is the 14-character identifier,
+upper-cased and with punctuation removed.
+
+The resulting representation is encoded as the exact byte sequence
+consumed by the commitment function.
+
+\subsection{\eeid\ and \txid}
+
+For the Pix deployment, \eeid\ and \txid\ are represented by the exact
+bytes returned by the PSP API.
+
+No case folding, trimming, or re-serialization is performed.
+
+This rule avoids ambiguity in the byte representation used by the
+commitment function.
+
+\subsection{Provenance}
+
+The \eeid\ is generated by the payer's PSP when the payment is
+initiated. It can therefore exist for a transaction that is later
+rejected as well as for one that settles.
+
+Consequently, the presence of an \eeid\ is not treated as evidence of
+settlement. The settlement status is supplied through the authorized PSP
+attestation described in Sections~\ref{sec:model}--\ref{sec:security}.
+
+\subsection{Scope}
+
+Nothing in the core construction depends on these Pix-specific
+representations. Another instant-payment rail can replace the
+canonicalization profile with its own rail-defined identifier
+representation while preserving the settlement-binding construction.
+
+\section{Threat Model Matrix}
+\label{app:threats}
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{@{}p{3.05cm}p{2.15cm}p{4.5cm}p{4.5cm}@{}}
+\toprule
+Adversary / Failure & Protected Property & Mitigation & Residual Limitation \\
+\midrule
+False proof & ZK consistency & Groth16 knowledge soundness & Depends on the trusted setup \\
+Different amount in $c_0$ and $c$ & Two-phase binding & Same private amount is constrained in both commitments & None under the stated circuit and hash assumptions \\
+Different operation identifier in $c_0$ and $c$ & Operation binding & Same private \txid\ is constrained in both commitments & Assumes identifiers are not legitimately reused across charges \\
+Reuse of a settlement tag & Single use & Write-once oracle attestation, with \code{tagUsed} as contract-level defense in depth & Scoped to the deployed (oracle, \Settle) instance pair \\
+Replay across domains & Domain separation & $K_D=\Poseidon(k_D)$ and $\nu=\Poseidon(\eeid,k_D)$ & Global uniqueness across domains is not provided \\
+Forged PSP receipt & Attestation authentication & EIP-712 + ECDSA recovery + registered-attestor check & Does not protect against a malicious registered PSP \\
+Expired receipt & Temporal validity & Receipt deadline checked on-chain & Deadline policy is deployment-specific \\
+$\mathit{settled}=\mathit{false}$ receipt & Settlement acceptance & Finalization requires $\mathit{settled}=\mathit{true}$ & Truthfulness remains an institutional assumption \\
+Wrong $c_0$ in receipt & Value/operation consistency & Receipt $c_0$ must equal locked $c_0$ & A malicious PSP can still sign an incorrect statement \\
+Wrong counterparty commitment & Counterparty binding & Receipt \pc\ must equal proof \pc\ & Correctness depends on the PSP's attestation \\
+Prover chooses a favorable counterparty & Predicate binding & \pc\ is a public circuit signal and signed receipt field & Consumer must check the predicate against the settled operation \\
+\eeid\ alone presented as settlement evidence & External-event authentication & PSP attestation required & No direct rail proof exists in the construction \\
+Chain observer learns amount & Confidentiality & Amount appears only inside ZK witness and commitments & Side channels and external information may still correlate operations \\
+Chain observer learns \eeid & Confidentiality & \eeid\ appears only inside $c$ and $\nu$ & Domain-key holders can deliberately link tags to \eeid\ values \\
+Domain key compromise & Selective linkability & Key is never public & Historical tags in that domain may become linkable \\
+Per-operation salt compromise & Commitment hiding & Fresh salts & Exposure affects the corresponding operation \\
+PSP signing-key compromise & Attestation integrity & Key revocation and receipt deadlines & Attacker may forge attestations during the usable window \\
+PSP refuses to attest & Liveness & Lock timeout and cancellation & Settlement cannot be finalized without attestation \\
+Front-running \code{finalize} & Operation ownership & \code{finalize} changes the already-selected operation and does not assign benefit to \code{msg.sender} & Downstream applications must preserve this invariant \\
+External refund after finalization & Economic finality & Configurable reversal/dispute window & Rail-level return mechanisms may outlive the protocol window \\
+Registry-owner compromise & Governance & Administrative controls & Production deployment should use stronger governance \\
+Trusted-setup compromise & Proof soundness & Production ceremony required & Reference deployment uses a research-prototype ceremony \\
+Central-bank/rail false statement & External-world truth & Not cryptographically mitigated & Requires stronger rail-level evidence or additional attestors \\
+\bottomrule
+\end{tabular}
+\caption{Threat model matrix.}
+\end{table*}
+
+\subsection{Trust Decomposition}
+
+The construction intentionally decomposes the final claim into
+independently attributable components.
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{7.5cm}p{7.5cm}@{}}
+\toprule
+Claim & Evidence \\
+\midrule
+Same amount and operation identifier occur in both commitments & Zero-knowledge proof \\
+Settlement tag is derived from the settlement identifier & Zero-knowledge proof \\
+Settlement tag is single-use & Oracle write-once attestation + on-chain \code{tagUsed} defense in depth \\
+\eeid\ is bound to the accepted confidential state & Zero-knowledge proof + PSP attestation \\
+Counterparty commitment is the one accepted for settlement & PSP attestation + on-chain cross-check \\
+External settlement actually occurred & PSP attestation under institutional assumption $I_1$ \\
+Central-bank / rail infrastructure itself attests the event & \textbf{Not established by this construction} \\
+Operation cannot remain locked forever & Protocol timeout \\
+Settlement is economically irreversible & \textbf{Not established cryptographically} \\
+\bottomrule
+\end{tabular}
+\caption{Trust decomposition.}
+\end{table*}
+
+This decomposition is the security boundary used by the formal analysis
+in Section~\ref{sec:security}.
+
+\section{Ecne Constraint-Analysis Methodology}
+\label{app:ecne}
+
+This appendix documents the methodology used to analyze the
+zero-knowledge circuits with Ecne. The purpose is to make the reported
+results reproducible and to prevent an overly strong interpretation of
+the tool's verdict.
+
+\subsection{Scope of the Analysis}
+
+Ecne is used here to analyze whether the generated R1CS is
+well-determined, i.e., whether the signals relevant to the declared
+targets are uniquely constrained by the system.
+
+This is an under-constraint analysis.
+
+It is \textbf{not} a proof of:
+\begin{itemize}
+\item functional correctness of the circuit;
+\item correctness of the protocol specification;
+\item cryptographic security of Poseidon or Groth16;
+\item correctness of the Solidity verifier;
+\item truthfulness of the PSP attestation; or
+\item security of the complete application.
+\end{itemize}
+Accordingly, this paper refers to the result as \textbf{constraint
+analysis}, rather than formal verification.
+
+This analysis is also distinct from static-analysis linting of the
+Circom source itself, such as Circomspect \cite{circomspect}, which
+flags coding-pattern risks (for example, unconstrained signals
+introduced by common template misuse) without solving the resulting
+R1CS. The two approaches are complementary: a circuit can pass a linter
+and still be under-constrained, or fail a linter check while remaining
+fully constrained.
+
+\subsection{Avoiding the Vacuous-Target Problem}
+
+A direct Ecne run over a circuit written with public inputs constrained
+through equality statements can produce a misleadingly positive result.
+
+In the original circuit structure, a public value may be supplied as an
+input and constrained with a relation such as
+\[
+c \mathrel{===} H(w).
+\]
+Depending on compilation, the resulting R1CS can expose no public
+outputs to the Ecne target set. If the target set is empty, the
+criterion
+\[
+\mathit{targets\ solved} = \mathit{targets}
+\]
+reduces to $0=0$. The resulting ``sound'' verdict is therefore vacuous.
+
+We therefore do not report the raw verdict alone.
+
+\subsection{Corrected Analysis}
+
+For the analysis reported in the paper, dedicated \code{\_out} variants
+of the circuits were used.
+
+The derived public signals were declared as explicit outputs, while
+preserving the constraint semantics of the original circuits. The
+analysis was performed on the unoptimized \code{-O0} R1CS because the
+optimizer can fold linear structure that Ecne's symbolic analysis relies
+upon.
+
+The primary settlement circuit was analyzed as
+\code{settlement\_verify\_v2\_out}, and the KYC inclusion circuit as
+\code{kyc\_inclusion\_verify\_out}.
+
+\subsection{Results}
+
+\begin{table*}[t]
+\centering
+\small
+\begin{tabular}{@{}lcccl@{}}
+\toprule
+Circuit & Opt. & Declared & Solved & Verdict \\
+\midrule
+\code{settlement\_verify\_v2\_out} & O0 & 5 & 5 & sound \\
+\code{kyc\_inclusion\_verify\_out} & O0 & 1 & 1 & sound \\
+\code{settlement\_verify\_v2\_out} & O2 & 5 & 4 & inconclusive \\
+\bottomrule
+\end{tabular}
+\caption{Ecne results by circuit and optimization level. Signals:
+4{,}229/4{,}229 (O0 settlement), 18{,}230/18{,}248 (O0 KYC),
+1{,}016/1{,}260 (O2 settlement).}
+\end{table*}
+
+The O0 settlement result solves all five declared targets and all
+reported signals.
+
+The KYC circuit has one declared target, which is solved. The remaining
+18 signals reported by Ecne as undetermined are therefore not among the
+declared targets. Those signals have not yet been individually mapped
+against the generated symbol file.
+
+The O2 settlement analysis is reported as \textbf{inconclusive}, not
+unsound. Ecne solved four of the five targets but could not determine
+the remaining target under the optimized constraint system.
+
+\subsection{Interpretation}
+
+The reported results provide evidence against one important class of
+implementation error: under-constrained R1CS signals.
+
+They do not establish that the circuit computes the intended predicate.
+
+For example, a circuit can be fully determined while computing an
+incorrect hash relation. Functional correctness therefore remains
+established by the circuit specification, manual audit, implementation
+cross-checks, and the cryptographic arguments of
+Section~\ref{sec:security} rather than by Ecne alone.
+
+A different under-constraint analysis, such as the techniques
+represented by $\mathrm{QED}^2$ \cite{qed2}, would provide an independent
+cross-check. Such an analysis has not been included in the present
+evaluation.
+
+\subsection{Relationship to the Main Security Argument}
+
+The Ecne analysis is complementary to the formal security analysis.
+
+Theorems in Section~\ref{sec:security} rely on the specified
+cryptographic assumptions and on the deterministic correctness of the
+deployed contract and circuit.
+
+Ecne does not replace those assumptions and is not included as a term in
+the reduction.
+
+Its role is narrower: it provides additional implementation-level
+evidence that the R1CS does not contain an obvious under-constrained
+signal under the stated analysis methodology.
+
+\begingroup
+\footnotesize
+\setlength{\itemsep}{0pt}
+\begin{thebibliography}{99}
+
+\bibitem{groth16} Jens Groth. \emph{On the Size of Pairing-Based
+Non-Interactive Arguments.} In \emph{Advances in Cryptology ---
+EUROCRYPT 2016}, LNCS 9666, pp.\ 305--326. Springer, 2016. IACR ePrint
+2016/260.
+
+\bibitem{poseidon} Lorenzo Grassi, Dmitry Khovratovich, Christian
+Rechberger, Arnab Roy, and Markus Schofnegger. \emph{Poseidon: A New
+Hash Function for Zero-Knowledge Proof Systems.} In \emph{USENIX
+Security Symposium}, 2021.
+
+\bibitem{rayls} M. Yaksetig and J. Xu. \emph{Rayls: A Novel Design for
+CBDCs.} IACR ePrint 2025/1639, 2025.
+
+\bibitem{rayls2} M. Yaksetig, P.\,M.\,F. Pereira, S. Yang, M. Nejadgholi,
+and J. Xu. \emph{Rayls II: Fast, Private, and Compliant CBDCs.} IACR
+ePrint 2025/1638, 2025.
+
+\bibitem{zeto} LF Decentralized Trust, Paladin Project. \emph{Zeto:
+Privacy-preserving implementations of fungible and non-fungible tokens,
+using UTXO as the underlying transaction model.} GitHub repository,
+accessed September 2026.
+\url{https://github.com/LF-Decentralized-Trust-labs/paladin}.
+
+\bibitem{zkp2p} ZKP2P / Peer. \emph{Peer Documentation.} Documentation
+portal, accessed September 2026.
+
+\bibitem{canton} Digital Asset. \emph{Canton Network: A Network of
+Networks for Smart Contract Applications.} White paper, updated January
+2024.
+
+\bibitem{deco} F. Zhang, D. Maram, H. Malvai, S. Goldfeder, and A.
+Juels. \emph{DECO: Liberating Web Data Using Decentralized Oracles for
+TLS.} In \emph{Proceedings of the ACM Conference on Computer and
+Communications Security (CCS)}, 2020.
+
+\bibitem{mlkem} National Institute of Standards and Technology.
+\emph{FIPS 203: Module-Lattice-Based Key-Encapsulation Mechanism
+Standard.} August 2024.
+\url{https://csrc.nist.gov/pubs/fips/203/final}.
+
+\bibitem{qurrency} A.\,R. Choudhuri, S. Garg, M. Gregoire, K. Lee, M.
+Lodder, H. Montgomery, G.\,V. Policharla, and J. Zhang. \emph{Qurrency: A
+Quantum-Secure, Private, and Auditable Platform for Digital Assets.}
+IACR ePrint 2026/015, 2026.
+
+\bibitem{ecne} F. Wang. \emph{Ecne: An Engine for Verifying the
+Soundness of R1CS Constraints.} 0xPARC, 2022.
+\url{https://github.com/franklynwang/EcneProject}.
+
+\bibitem{qed2} S. Pailoor, Y. Chen, F. Wang, C. Rodr\'iguez, J. Van
+Gaffen, J. Morton, M. Chu, B. Gu, Y. Feng, and I. Dillig. \emph{Automated
+Detection of Underconstrained Circuits for Zero-Knowledge Proofs.} In
+\emph{Proceedings of the ACM SIGPLAN Conference on Programming Language
+Design and Implementation (PLDI)}, 2023. IACR ePrint 2023/512.
+
+\bibitem{circomspect} Trail of Bits. \emph{Circomspect: A Static
+Analyzer and Linter for the Circom Zero-Knowledge DSL.} 2022.
+\url{https://github.com/trailofbits/circomspect}.
+
+\bibitem{spicatalog} Banco Central do Brasil. \emph{Cat\'alogo de
+Servi\c{c}os do SFN, Volume VI --- Pagamentos Instant\^aneos}, vers\~ao
+5.12.
+
+\bibitem{cnpjalfa} Receita Federal do Brasil. \emph{Instru\c{c}\~ao
+Normativa RFB n\textsuperscript{o} 2.229, de 15 de outubro de 2024.}
+
+\end{thebibliography}
+\endgroup
+
+\end{document}
