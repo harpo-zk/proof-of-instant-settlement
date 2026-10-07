@@ -167,25 +167,27 @@ reproduction commands are in `docs/eprint/ARTIFACTS.md`.
 ## Tests
 
 ```bash
-npx hardhat test tests/SettlementV2.test.ts tests/SettlementAttestationOracle.test.ts tests/SettlementVerifierV2.gas.test.ts
+npx hardhat test tests/SettlementV2.test.ts tests/SettlementAttestationOracle.test.ts tests/SettlementVerifierV2.gas.test.ts tests/SettlementV2.finalize.test.ts
 ```
 
-21 tests pass (9 + 11 + 1, 0 failures), re-confirmed during this
-documentation sync. They cover: `lock`/`cancel`/`Expired` transitions and
-double-lock rejection; attestation acceptance, non-attestor rejection,
-`settled = false` rejection, expired-receipt rejection, tag-replay rejection,
-and attestor revocation; confidentiality of the calldata (neither the
-settled amount nor the counterparty identifier appears in `attest()`); and
-Groth16 verification gas for a real proof.
+22 tests pass (9 + 11 + 1 + 1, 0 failures). The first 21 cover:
+`lock`/`cancel`/`Expired` transitions and double-lock rejection; attestation
+acceptance, non-attestor rejection, `settled = false` rejection,
+expired-receipt rejection, tag-replay rejection, and attestor revocation;
+confidentiality of the calldata (neither the settled amount nor the
+counterparty identifier appears in `attest()`); and Groth16 verification gas
+for a real proof.
 
-**Not covered by this suite:** the cross-instance replay experiment reported
-in the manuscript's §8.4 (two independently deployed `(oracle, Settle)`
-pairs, same settlement tag, replay rejected in the originating instance and
-accepted independently in the other) was executed in the authors' internal
-POC repository and is not currently reproduced by an automated test in this
-public repository. This is deliberate — it is planned for a separate,
-follow-up pull request — not a hidden gap; see
-`docs/eprint/ARTIFACTS.md` for the full note.
+The 22nd, `tests/SettlementV2.finalize.test.ts`, reproduces the manuscript's
+§8.4 cross-instance replay claim. It uses the real Groth16 proof for the
+successful settlement and carries a second, independently generated proof
+fixture representing a distinct operation with the same settlement tag; that
+second operation is rejected at the oracle's attestation gate before proof
+verification is reached, while an independent deployment that never saw the
+tag accepts and finalizes the real proof's settlement on its own —
+settlement-tag uniqueness is enforced per deployment, not globally. See
+`docs/eprint/ARTIFACTS.md` for the full note, including the provenance of
+the second proof fixture.
 
 ## Experimental Results
 

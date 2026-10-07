@@ -391,9 +391,10 @@ file (open item, listed as future work rather than asserted).
 npx hardhat test tests/SettlementV2.test.ts tests/SettlementAttestationOracle.test.ts tests/SettlementVerifierV2.gas.test.ts
 ```
 
-21 tests pass (9 + 11 + 1, 0 failures; run on 2026-09-29 in a clean clone
-after `npm ci`, and re-confirmed unchanged on 2026-10-07 as part of the V3
-documentation sync). `tests/SettlementAttestationOracle.test.ts`
+22 tests pass (9 + 11 + 1 + 1, 0 failures; the original 21 run on 2026-09-29
+in a clean clone after `npm ci` and re-confirmed unchanged on 2026-10-07 as
+part of the V3 documentation sync; the 22nd is the cross-instance replay test
+added below). `tests/SettlementAttestationOracle.test.ts`
 includes a test that checks neither the settled amount **nor** the
 counterparty's cleartext identifier appears in `attest`'s calldata.
 `tests/SettlementV2.test.ts` covers `lock`
@@ -402,17 +403,36 @@ mutual exclusion with a second `cancel`), and the `isExpired`/`isReleasable`
 view predicates — all locally, with the real on-chain evidence for the
 `cancel`/`finalize` mutual-exclusion property given by case 8 above.
 
-**Not covered by this suite — cross-instance replay (§8.4).** The manuscript
-reports a replay/cross-instance experiment: two independent `(oracle,
-Settle)` pairs, the same settlement tag (same \eeid/domain key), two
-different proofs/terms, the replay rejected within the originating context
-and accepted independently in the other instance, demonstrating that
-uniqueness is instance-scoped rather than global. The cross-instance replay
-experiment reported in §8.4 was executed in the authors' internal POC
-repository and is not currently reproduced by an automated test in this
-public repository. This is deliberate, not an oversight: the test is planned
-for a separate, follow-up pull request rather than being added, copied, or
-approximated as part of this documentation-only sync.
+**Cross-instance replay (§8.4) — now covered.** The cross-instance replay
+experiment reported in §8.4 is now covered by the automated regression test
+`tests/SettlementV2.finalize.test.ts` ("rejects replay within the same
+Oracle/Settlement instance ..., but allows the same tag in an independent
+instance"), which exercises two independent `(SettlementAttestationOracle,
+SettlementV2)` pairs:
+
+- **Instance A.** The real `settlement_verify_v2` proof already shipped in
+  `build/circuits/settlement_verify_v2/` is attested and finalized
+  successfully. A second, independently generated proof fixture
+  (`tests/fixtures/settlement_verify_v2_case9/`, carried over unmodified
+  from the authors' internal POC repository — generated against the exact
+  same circuit and zkey shipped here, so it is a valid proof for this
+  repository's `SettlementVerifierV2` without anything being regenerated)
+  represents a distinct operation carrying the **same settlement tag**.
+  Submitting its attestation is rejected at the oracle's gate
+  (`oracle: tag ja atestada`) — its Groth16 proof is never reached by
+  `finalize()`/`verifyProof()`, because the oracle rejects the second
+  attestation first.
+- **Instance B.** A fresh `(oracle, SettlementV2)` pair that never saw the
+  tag accepts and finalizes the real proof from Instance A on its own.
+
+Only one Groth16 proof is ever verified on-chain in this test — the real
+`settlement_verify_v2` proof, once in Instance A and once in Instance B. The
+second proof fixture is used solely for its public signals (the shared tag,
+and a distinct `c0`/`partyCommitment`), to reach the oracle's attestation
+gate; it is not submitted to a verifier. This establishes that settlement-tag
+uniqueness is enforced **within an individual Oracle/Settlement deployment
+context**; it does not establish, and the test does not claim, that the tag
+is unique across independent deployments — the opposite is demonstrated.
 
 ## Open items (not blocking)
 
@@ -425,9 +445,6 @@ approximated as part of this documentation-only sync.
   main text either — see "Proving and verification" above.)
 - **The 18 undetermined signals of the KYC circuit:** identify them against
   its `.sym` file.
-- **Port the cross-instance/tag-replay test** described in manuscript §8.4
-  into this repository's `tests/` directory (see "Not covered by this suite"
-  above).
 
 ## Provenance
 
